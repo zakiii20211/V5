@@ -178,7 +178,7 @@ echo $host1 > /root/domain
 echo ""
 elif [[ $host == "2" ]]; then
 echo "Proses pointing"
-wget -q -O cf.sh "${REPO}source/cf.sh"
+wget -q -O cf.sh "${REPO}files/cf.sh"
 chmod +x cf.sh
 ./cf.sh
 else
@@ -287,16 +287,16 @@ chown www-data:www-data $domainSock_dir
 latest_version="$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases | grep tag_name | sed -E 's/.*"v(.*)".*/\1/' | head -n 1)"
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data --version 24.10.31
 #mv /usr/local/bin/xray /usr/bin/xray_24.10.31
-#wget -q -O /usr/local/bin/xray "${REPO}source/xray_24.10.31"
+#wget -q -O /usr/local/bin/xray "${REPO}files/xray_24.10.31"
 #chmod +x /usr/local/bin/xray
-wget -q -O /etc/xray/config.json "${REPO}source/config.json"
+wget -q -O /etc/xray/config.json "${REPO}files/config.json"
 domain=$(cat /etc/xray/domain)
 IPVPS=$(cat /etc/xray/ipvps)
 print_success "Core Xray Latest Version"
 clear
 print_install "Memasang Konfigurasi Packet"
-wget -q -O /etc/nginx/conf.d/xray.conf "${REPO}source/xray.conf"
-wget -q -O /etc/nginx/nginx.conf "${REPO}source/nginx.conf"
+wget -q -O /etc/nginx/conf.d/xray.conf "${REPO}files/xray.conf"
+wget -q -O /etc/nginx/nginx.conf "${REPO}files/nginx.conf"
 sed -i "s/xxx/${domain}/g" /etc/nginx/conf.d/xray.conf
 rm -rf /etc/systemd/system/xray.service.d
 cat >/etc/systemd/system/xray.service <<EOF
@@ -325,7 +325,7 @@ print_success "Konfigurasi Packet"
 function ssh(){
 clear
 print_install "Memasang Password SSH"
-wget -q -O /etc/pam.d/common-password "${REPO}source/password"
+wget -q -O /etc/pam.d/common-password "${REPO}files/password"
 chmod +x /etc/pam.d/common-password
 
     DEBIAN_FRONTEND=noninteractive dpkg-reconfigure keyboard-configuration
@@ -399,20 +399,20 @@ function udp_mini(){
 clear
 print_install "Memasang Service Limit Quota"
 cd
-wget -q -O /etc/systemd/system/limitvmess.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/limitvmess.service"
-wget -q -O /etc/systemd/system/limitvless.service "https://raw.githubusercontent.com/zakiii20211/V5/refs/heads/main/source/limitvless.service"
-wget -q -O /etc/systemd/system/limittrojan.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/limittrojan.service"
-wget -q -O /etc/systemd/system/limitshadowsocks.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/limitshadowsocks.service"
-wget -q -O /etc/xray/limit.vmess "https://raw.githubusercontent.com/zakiii20211/V5/main/source/vmess" >/dev/null 2>&1
-wget -q -O /etc/xray/limit.vless "https://raw.githubusercontent.com/zakiii20211/V5/main/source/vless" >/dev/null 2>&1
-wget -q -O /etc/xray/limit.trojan "https://raw.githubusercontent.com/zakiii20211/V5/main/source/trojan" >/dev/null 2>&1
-wget -q -O /etc/xray/limit.shadowsocks "https://raw.githubusercontent.com/zakiii20211/V5/main/source/shadowsocks" >/dev/null 2>&1
+wget -q -O /etc/systemd/system/limitvmess.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/limitvmess.service"
+wget -q -O /etc/systemd/system/limitvless.service "https://raw.githubusercontent.com/zakiii20211/V5/refs/heads/main/files/limitvless.service"
+wget -q -O /etc/systemd/system/limittrojan.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/limittrojan.service"
+wget -q -O /etc/systemd/system/limitshadowsocks.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/limitshadowsocks.service"
+wget -q -O /etc/xray/limit.vmess "https://raw.githubusercontent.com/zakiii20211/V5/main/files/vmess" >/dev/null 2>&1
+wget -q -O /etc/xray/limit.vless "https://raw.githubusercontent.com/zakiii20211/V5/main/files/vless" >/dev/null 2>&1
+wget -q -O /etc/xray/limit.trojan "https://raw.githubusercontent.com/zakiii20211/V5/main/files/trojan" >/dev/null 2>&1
+wget -q -O /etc/xray/limit.shadowsocks "https://raw.githubusercontent.com/zakiii20211/V5/main/files/shadowsocks" >/dev/null 2>&1
 chmod +x /etc/xray/limit.vmess
 chmod +x /etc/xray/limit.vless
 chmod +x /etc/xray/limit.trojan
 chmod +x /etc/xray/limit.shadowsocks
 
-wget -q -O /usr/bin/limit-ip "https://raw.githubusercontent.com/zakiii20211/V5/main/source/limit-ip"
+wget -q -O /usr/bin/limit-ip "https://raw.githubusercontent.com/zakiii20211/V5/main/files/limit-ip"
 chmod +x /usr/bin/*
 cd /usr/bin
 sed -i 's/\r//' limit-ip
@@ -462,13 +462,13 @@ WantedBy=multi-user.target
 EOF
 
 mkdir -p /usr/local/xdxl/
-wget -q -O /usr/local/xdxl/badvpn "https://raw.githubusercontent.com/zakiii20211/V5/main/source/badvpn"
+wget -q -O /usr/local/xdxl/badvpn "https://raw.githubusercontent.com/zakiii20211/V5/main/files/badvpn"
 chmod +x /usr/local/xdxl/badvpn
-wget -q -O /usr/local/kyt/udp-mini "https://raw.githubusercontent.com/zakiii20211/V5/main/source/udp-mini"
+wget -q -O /usr/local/kyt/udp-mini "https://raw.githubusercontent.com/zakiii20211/V5/main/files/udp-mini"
 chmod +x /usr/local/kyt/udp-mini
-wget -q -O /etc/systemd/system/udp-mini-1.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/udp-mini-1.service"
-wget -q -O /etc/systemd/system/udp-mini-2.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/udp-mini-2.service"
-wget -q -O /etc/systemd/system/udp-mini-3.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/udp-mini-3.service"
+wget -q -O /etc/systemd/system/udp-mini-1.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/udp-mini-1.service"
+wget -q -O /etc/systemd/system/udp-mini-2.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/udp-mini-2.service"
+wget -q -O /etc/systemd/system/udp-mini-3.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/udp-mini-3.service"
 print_success "Limit Quota Service"
 }
 
@@ -484,7 +484,7 @@ print_success "SlowDNS"
 function ins_SSHD(){
 clear
 print_install "Memasang SSHD"
-wget -q -O /etc/ssh/sshd_config "https://raw.githubusercontent.com/zakiii20211/V5/main/source/sshd"
+wget -q -O /etc/ssh/sshd_config "https://raw.githubusercontent.com/zakiii20211/V5/main/files/sshd"
 chmod 700 /etc/ssh/sshd_config
 /etc/init.d/ssh restart
 systemctl restart ssh
@@ -497,7 +497,7 @@ clear
 print_install "Install Dropbear, Press any button if too long"
 # // Installing Dropbear
 apt-get install dropbear -y > /dev/null 2>&1
-wget -q -O /etc/default/dropbear "https://raw.githubusercontent.com/zakiii20211/V5/main/source/dropbear"
+wget -q -O /etc/default/dropbear "https://raw.githubusercontent.com/zakiii20211/V5/main/files/dropbear"
 chmod +x /etc/default/dropbear
 /etc/init.d/dropbear restart
 /etc/init.d/dropbear status
@@ -530,7 +530,7 @@ print_success "Vnstat"
 function ins_openvpn(){
 clear
 print_install "Menginstall OpenVPN"
-wget -q -O openvpn.sh "https://raw.githubusercontent.com/zakiii20211/V5/main/source/openvpn"
+wget -q -O openvpn.sh "https://raw.githubusercontent.com/zakiii20211/V5/main/files/openvpn"
 chmod +x openvpn && ./openvpn
 /etc/init.d/openvpn restart
 print_success "OpenVPN"
@@ -541,7 +541,7 @@ clear
 print_install "Memasang Backup Server"
 apt install rclone -y
 printf "q\n" | rclone config
-wget -q -O /root/.config/rclone/rclone.conf "${REPO}source/rclone.conf"
+wget -q -O /root/.config/rclone/rclone.conf "${REPO}files/rclone.conf"
 cd /bin
 git clone  https://github.com/magnific0/wondershaper.git
 cd wondershaper
@@ -549,7 +549,7 @@ sudo make install
 cd
 rm -rf wondershaper
 echo > /home/limit
-wget -q -O /etc/ipserver "${REPO}source/ipserver" && bash /etc/ipserver
+wget -q -O /etc/ipserver "${REPO}files/ipserver" && bash /etc/ipserver
 print_success "Backup Server"
 }
 
@@ -574,7 +574,7 @@ chronyd -q 'server 0.id.pool.ntp.org iburst'
 chronyc sourcestats -v
 chronyc tracking -v
 
-wget -q ${REPO}source/bbr.sh
+wget -q ${REPO}files/bbr.sh
 chmod +x bbr.sh && ./bbr.sh
 print_success "Swap 1 G"
 }
@@ -596,15 +596,15 @@ fi
 echo "Banner /etc/issue.net" >>/etc/ssh/sshd_config
 sed -i 's@DROPBEAR_BANNER=""@DROPBEAR_BANNER="/etc/issue.net"@g' /etc/default/dropbear
 
-wget -q -O /etc/issue.net "https://raw.githubusercontent.com/zakiii20211/V5/main/source/issue.net"
+wget -q -O /etc/issue.net "https://raw.githubusercontent.com/zakiii20211/V5/main/files/issue.net"
 }
 
 function ins_epro(){
 clear
 print_install "Install ePro WebSocket Proxy"
-    wget -O /usr/bin/ws "https://raw.githubusercontent.com/zakiii20211/V5/main/source/ws" >/dev/null 2>&1
-    wget -O /usr/bin/tun.conf "https://raw.githubusercontent.com/zakiii20211/V5/main/source/tun.conf" >/dev/null 2>&1
-    wget -O /etc/systemd/system/ws.service "https://raw.githubusercontent.com/zakiii20211/V5/main/source/ws.service" >/dev/null 2>&1
+    wget -O /usr/bin/ws "https://raw.githubusercontent.com/zakiii20211/V5/main/files/ws" >/dev/null 2>&1
+    wget -O /usr/bin/tun.conf "https://raw.githubusercontent.com/zakiii20211/V5/main/files/tun.conf" >/dev/null 2>&1
+    wget -O /etc/systemd/system/ws.service "https://raw.githubusercontent.com/zakiii20211/V5/main/files/ws.service" >/dev/null 2>&1
     chmod +x /etc/systemd/system/ws.service
     chmod +x /usr/bin/ws
     chmod 644 /usr/bin/tun.conf
@@ -615,7 +615,7 @@ systemctl start ws
 systemctl restart ws
 wget -q -O /usr/local/share/xray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" >/dev/null 2>&1
 wget -q -O /usr/local/share/xray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" >/dev/null 2>&1
-wget -O /usr/sbin/ftvpn "https://raw.githubusercontent.com/zakiii20211/V5/main/source/ftvpn" >/dev/null 2>&1
+wget -O /usr/sbin/ftvpn "https://raw.githubusercontent.com/zakiii20211/V5/main/files/ftvpn" >/dev/null 2>&1
 chmod +x /usr/sbin/ftvpn
 iptables -A FORWARD -m string --string "get_peers" --algo bm -j DROP
 iptables -A FORWARD -m string --string "announce_peer" --algo bm -j DROP
