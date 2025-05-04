@@ -10,4 +10,4 @@ apt install -y && apt update -y && apt upgrade -y && wget -q https://raw.githubu
 
 ### WORK DI OS
 - UBUNTU 20.04.05
-- DEBIAN 10 ( Disarankan )
+- DEBIAN 11 ( Disarankan )
