@@ -1,0 +1,27 @@
+#!/bin/bash
+clear
+systemctl daemon-reload
+systemctl restart nginx
+systemctl restart xray
+systemctl restart ws
+systemctl restart fail2ban
+systemctl restart ssh
+systemctl restart rc-local
+systemctl restart dropbear
+systemctl restart openvpn
+systemctl restart cron
+systemctl restart haproxy
+systemctl restart netfilter-persistent
+systemctl restart squid
+systemctl disable udp-mini-1
+systemctl stop udp-mini-1
+systemctl enable udp-mini-1
+systemctl start udp-mini-1
+systemctl disable udp-mini-2
+systemctl stop udp-mini-2
+systemctl enable udp-mini-2
+systemctl start udp-mini-2
+systemctl disable udp-mini-3
+systemctl stop udp-mini-3
+systemctl enable udp-mini-3
+systemctl start udp-mini-3
