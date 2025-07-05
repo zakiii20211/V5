@@ -1,20 +1,23 @@
 #!/bin/bash
-
-# Skrip Pengurusan WARP dengan Menu Ringkas
-# Dicipta untuk Debian/Ubuntu
-
-# Warna untuk output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-# Pastikan skrip dijalankan sebagai root
-if [ "$(id -u)" -ne 0 ]; then
-   echo -e "${RED}Skrip ini perlu dijalankan sebagai root. Sila guna 'sudo ./warp_menu.sh'${NC}" 
-   exit 1
-fi
+clear
+function udepe(){
+clear
+echo 
+echo -e "\e[0m udp stup install....\e[0m"
+sleep 0.7
+echo -e "\e[0m Succes...\e[0m"
+sleep 0.7
+echo
+echo -e "\e[0m By khaiVPN..\e[0m"
+sleep 0.7
+echo
+clear
+cd
+rm -rf /root/udp
+mkdir -p /root/udp
+# change to time GMT+8
+echo "change to time GMT+8"
+ln -fs /usr/share/zoneinfo/Asia/Kuala_Lumpur /etc/localtime
 
 # Fungsi untuk memasang WARP
 install_warp() {
