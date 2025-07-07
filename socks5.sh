@@ -1,147 +1,211 @@
-#!/bin.bash
+#!/bin/bash
+
 # ==============================================================================
-# Smart Streaming Domain Bypass Script
-# Versi: 1.0
+# Skrip Bash untuk Bypass Domain via Cloudflare WARP WireGuard
 #
-# CARA KERJA:
-# Mengalihkan trafik untuk domain streaming tertentu ke sebuah LOCAL PROXY PORT.
-# Anda harus menjalankan proxy client (misal: SSH tunnel, Shadowsocks)
-# yang mendengarkan di port tersebut dan terhubung ke server Anda di luar negeri.
+# Deskripsi:
+# Mengalihkan lalu lintas untuk domain tertentu (Netflix, Hotstar, dll.)
+# melalui interface WireGuard WARP, sementara lalu lintas lain tetap normal.
+# Mendukung IPv4 dan IPv6.
 #
-# DIBUTUHKAN: iptables, dig (dari dnsutils/bind-tools)
+# Dibuat oleh: AI Model
+# Versi: 1.1
 # ==============================================================================
 
-# --- KONFIGURASI PENGGUNA (SILAKAN UBAH) ---
+# --- KONFIGURASI (Silakan ubah sesuai kebutuhan) ---
 
-# Alamat IP dan Port dari PROXY LOKAL Anda.
-# Ini adalah tempat proxy client Anda berjalan di komputer Anda.
-# Contoh: Jika Anda menggunakan SSH tunnel `ssh -D 1080 user@server.com`
-# maka port-nya adalah 1080.
-# Untuk Squid/HTTP Proxy, biasanya port seperti 3128 atau 8080.
-# Skrip ini menggunakan REDSOCKS/TRANSPARENT PROXY, jadi kita set port-nya.
-REDIRECT_PORT="12345"
+# 1. Nama interface WireGuard WARP Anda.
+#    Cari tahu dengan perintah: `ip a` atau `wg show`
+#    Contoh: "wgcf", "warp", "wg0"
+WARP_INTERFACE="wgcf"
 
-# --- DAFTAR DOMAIN (Bisa ditambah/dikurangi) ---
+# 2. Nama dan ID untuk tabel routing kustom.
+#    Anda bisa biarkan default jika tidak ada konflik.
+WARP_TABLE_ID="100"
+WARP_TABLE_NAME="warp"
 
-# Daftar domain bisa berubah. Anda mungkin perlu memperbarui ini secara berkala.
-DOMAINS_NETFLIX=(
+# 3. Daftar domain yang akan di-bypass.
+#    Pisahkan dengan spasi.
+DOMAINS_TO_BYPASS=(
+    # Netflix
     "netflix.com"
     "nflxvideo.net"
     "nflximg.net"
     "nflxso.net"
-    "fast.com" # Milik Netflix
-)
-
-DOMAINS_HOTSTAR=(
+    "nflxext.com"
+    # Hotstar / Disney+
     "hotstar.com"
     "hotstar-cdn.net"
-    "hses.akamaized.net"
-    "live.hotstar.com"
+    "disneyplus.com"
+    "disneystreaming.com"
+    "dssott.com"
+    "bamgrid.com"
 )
 
-# Gabungkan semua domain menjadi satu array
-ALL_DOMAINS=("${DOMAINS_NETFLIX[@]}" "${DOMAINS_HOTSTAR[@]}")
+# --- AKHIR KONFIGURASI ---
 
-# Nama chain untuk iptables agar mudah dibersihkan
-CHAIN_NAME="STREAMING_BYPASS"
+# Lokasi file sementara untuk menyimpan daftar IP
+IP_LIST_FILE="/tmp/warp_bypass_ips.txt"
 
-# --- FUNGSI-FUNGSI SKRIP ---
+# Cek apakah skrip dijalankan sebagai root
+if [[ $EUID -ne 0 ]]; then
+   echo "Skrip ini harus dijalankan sebagai root. Gunakan 'sudo'."
+   exit 1
+fi
+
+# Fungsi untuk memeriksa dependensi
+check_deps() {
+    if ! command -v dig &> /dev/null; then
+        echo "Perintah 'dig' tidak ditemukan."
+        echo "Silakan install 'dnsutils' (Debian/Ubuntu) atau 'bind-utils' (CentOS/RHEL)."
+        exit 1
+    fi
+}
+
+# Fungsi untuk menambahkan nama tabel ke /etc/iproute2/rt_tables jika belum ada
+setup_routing_table() {
+    if ! grep -q "^\s*$WARP_TABLE_ID\s+$WARP_TABLE_NAME\b" /etc/iproute2/rt_tables; then
+        echo "Menambahkan tabel routing '$WARP_TABLE_NAME' ke /etc/iproute2/rt_tables..."
+        echo "$WARP_TABLE_ID $WARP_TABLE_NAME" >> /etc/iproute2/rt_tables
+    fi
+}
+
+# Fungsi untuk mencari IP dari semua domain
+resolve_domains() {
+    echo "Mencari alamat IP untuk domain yang ditentukan..."
+    rm -f "$IP_LIST_FILE"
+    for domain in "${DOMAINS_TO_BYPASS[@]}"; do
+        # Cari alamat IPv4 (A) dan IPv6 (AAAA)
+        dig +short "$domain" A >> "$IP_LIST_FILE"
+        dig +short "$domain" AAAA >> "$IP_LIST_FILE"
+    done
+    # Hapus baris kosong
+    sed -i '/^$/d' "$IP_LIST_FILE"
+    echo "Pencarian IP selesai. Hasil disimpan di $IP_LIST_FILE"
+}
 
 # Fungsi untuk memulai bypass
 start_bypass() {
-    echo "=> Memulai proses bypass..."
+    echo "Memulai bypass..."
 
-    # 1. Periksa hak akses sudo
-    if [[ $EUID -ne 0 ]]; then
-       echo "Skrip ini harus dijalankan dengan sudo."
-       exit 1
+    # 1. Pastikan interface WARP aktif
+    if ! ip link show "$WARP_INTERFACE" &> /dev/null; then
+        echo "Error: Interface '$WARP_INTERFACE' tidak ditemukan atau tidak aktif."
+        exit 1
     fi
 
-    # 2. Buat chain baru di iptables
-    echo "-> Membuat chain iptables: $CHAIN_NAME"
-    iptables -t nat -N $CHAIN_NAME
+    # 2. Cari alamat IP
+    resolve_domains
+    if [ ! -s "$IP_LIST_FILE" ]; then
+        echo "Error: Gagal mendapatkan alamat IP. Periksa koneksi internet atau daftar domain."
+        exit 1
+    fi
 
-    # 3. Alihkan trafik dari chain baru ke port proxy lokal
-    # Menggunakan REDIRECT yang cocok untuk transparent proxy
-    iptables -t nat -A $CHAIN_NAME -p tcp -j REDIRECT --to-ports $REDIRECT_PORT
+    # 3. Tambahkan rute default ke tabel kustom via interface WARP
+    # Perintah ini akan menangani IPv4 dan IPv6 secara otomatis
+    echo "Menambahkan rute default via $WARP_INTERFACE ke tabel $WARP_TABLE_NAME..."
+    ip route add default dev "$WARP_INTERFACE" table "$WARP_TABLE_NAME"
 
-    # 4. Cari IP untuk setiap domain dan tambahkan aturan
-    echo "-> Mencari alamat IP dan menambahkan aturan routing..."
-    for domain in "${ALL_DOMAINS[@]}"; do
-        echo "  - Memproses domain: $domain"
-        # Gunakan 'dig' untuk mendapatkan semua alamat IP (A dan AAAA record)
-        IP_ADDRESSES=$(dig +short "$domain" A "$domain" AAAA | grep -v '^\s*$' | sort -u)
-        if [[ -z "$IP_ADDRESSES" ]]; then
-            echo "    Peringatan: Tidak dapat menemukan IP untuk $domain. Mungkin domain sudah tidak aktif."
-            continue
+    # 4. Tambahkan aturan routing untuk setiap IP
+    echo "Menambahkan aturan routing untuk setiap IP..."
+    while IFS= read -r ip; do
+        if [[ -n "$ip" ]]; then
+            ip rule add to "$ip" table "$WARP_TABLE_NAME"
         fi
+    done < "$IP_LIST_FILE"
 
-        for ip in $IP_ADDRESSES; do
-            echo "    - Menambahkan aturan untuk IP: $ip"
-            # Tambahkan aturan untuk setiap IP agar melompat ke chain kita
-            iptables -t nat -A OUTPUT -p tcp -d "$ip" -j $CHAIN_NAME
-        done
-    done
-
-    echo "=> Bypass berhasil diaktifkan!"
-    echo "=> Pastikan proxy client Anda berjalan dan mendengarkan di port $REDIRECT_PORT."
+    # 5. Bersihkan cache routing
+    ip route flush cache
+    echo -e "\nBypass berhasil diaktifkan!"
+    echo "Lalu lintas ke Netflix/Hotstar sekarang dialihkan melalui $WARP_INTERFACE."
 }
 
 # Fungsi untuk menghentikan bypass
 stop_bypass() {
-    echo "=> Menghentikan proses bypass..."
+    echo "Menghentikan bypass..."
 
-    if [[ $EUID -ne 0 ]]; then
-       echo "Skrip ini harus dijalankan dengan sudo."
-       exit 1
+    if [ ! -f "$IP_LIST_FILE" ]; then
+        echo "Tidak ada file daftar IP ($IP_LIST_FILE). Mungkin bypass belum pernah dijalankan."
+        echo "Mencoba menghapus aturan secara umum (jika ada)..."
+        # Mencoba menghapus aturan yang mungkin tersisa
+        while ip rule | grep -q "lookup $WARP_TABLE_NAME"; do
+           ip rule del lookup "$WARP_TABLE_NAME"
+        done
+    else
+        # 1. Hapus aturan routing untuk setiap IP
+        echo "Menghapus aturan routing..."
+        while IFS= read -r ip; do
+            if [[ -n "$ip" ]]; then
+                # Terus hapus sampai tidak ada lagi aturan untuk IP ini
+                while ip rule list | grep -q "to $ip table $WARP_TABLE_NAME"; do
+                    ip rule del to "$ip" table "$WARP_TABLE_NAME"
+                done
+            fi
+        done < "$IP_LIST_FILE"
+        rm -f "$IP_LIST_FILE"
     fi
 
-    # 1. Hapus aturan dari chain OUTPUT yang merujuk ke chain kita
-    # Cara aman: list aturan dengan nomor, lalu hapus dari bawah ke atas
-    echo "-> Menghapus aturan dari chain OUTPUT..."
-    iptables -t nat -L OUTPUT --line-numbers | grep $CHAIN_NAME | sort -r -k1 | cut -d' ' -f1 | while read -r num; do
-        iptables -t nat -D OUTPUT "$num"
-    done
+    # 2. Hapus rute default dari tabel kustom
+    echo "Menghapus rute dari tabel $WARP_TABLE_NAME..."
+    ip route flush table "$WARP_TABLE_NAME"
 
-    # 2. Flush (kosongkan) chain kustom kita
-    echo "-> Mengosongkan chain $CHAIN_NAME..."
-    iptables -t nat -F $CHAIN_NAME
-
-    # 3. Hapus chain kustom kita
-    echo "-> Menghapus chain $CHAIN_NAME..."
-    iptables -t nat -X $CHAIN_NAME
-
-    echo "=> Bypass berhasil dinonaktifkan. Semua aturan telah dibersihkan."
+    # 3. Bersihkan cache routing
+    ip route flush cache
+    echo -e "\nBypass berhasil dihentikan."
+    echo "Semua lalu lintas kembali normal."
 }
 
 # Fungsi untuk menampilkan status
-show_status() {
-    echo "=> Status Aturan Bypass:"
-    if iptables -t nat -L $CHAIN_NAME > /dev/null 2>&1; then
-        echo "Status: AKTIF"
-        echo "Proxy Port: $REDIRECT_PORT"
-        echo "Aturan di chain OUTPUT yang mengarah ke bypass:"
-        iptables -t nat -L OUTPUT -v -n | grep $CHAIN_NAME
+status_bypass() {
+    echo "--- Status Bypass WARP ---"
+    if ! ip link show "$WARP_INTERFACE" &> /dev/null; then
+        echo "Interface $WARP_INTERFACE: TIDAK AKTIF"
     else
-        echo "Status: TIDAK AKTIF"
+        echo "Interface $WARP_INTERFACE: AKTIF"
     fi
+
+    echo ""
+    echo "Aturan routing untuk tabel '$WARP_TABLE_NAME':"
+    ip rule show | grep "lookup $WARP_TABLE_NAME" || echo "Tidak ada aturan ditemukan."
+
+    echo ""
+    echo "Isi tabel routing '$WARP_TABLE_NAME':"
+    ip route show table "$WARP_TABLE_NAME" || echo "Tabel kosong."
+    
+    echo ""
+    echo "Daftar IP yang di-bypass (jika aktif):"
+    if [ -f "$IP_LIST_FILE" ]; then
+        cat "$IP_LIST_FILE"
+    else
+        echo "Tidak ada file daftar IP. Bypass kemungkinan tidak aktif."
+    fi
+    echo "--------------------------"
 }
 
-
-# --- MAIN LOGIC ---
-
+# Logika utama skrip
 case "$1" in
     start)
+        check_deps
+        setup_routing_table
         start_bypass
         ;;
     stop)
         stop_bypass
         ;;
+    restart)
+        stop_bypass
+        sleep 1
+        check_deps
+        setup_routing_table
+        start_bypass
+        ;;
     status)
-        show_status
+        status_bypass
         ;;
     *)
-        echo "Penggunaan: sudo $0 {start|stop|status}"
+        echo "Penggunaan: sudo $0 {start|stop|restart|status}"
         exit 1
         ;;
 esac
+
+exit 0
