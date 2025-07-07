@@ -1,0 +1,80 @@
+#!/bin/bash
+
+dns_servers=(
+    "8.8.8.8"         # Google DNS
+    "8.8.4.4"         # Google DNS
+    "1.1.1.1"         # Cloudflare DNS
+    "1.0.0.1"         # Cloudflare DNS
+    "208.67.222.222"  # OpenDNS
+    "208.67.220.220"  # OpenDNS
+    "9.9.9.9"         # Quad9 DNS
+)
+
+domain="example.com"
+
+function show_menu() {
+    echo "DNS Global Checker Menu"
+    echo "1) Cek DNS untuk domain $domain"
+    echo "2) Tambah IP DNS server"
+    echo "3) Tampilkan daftar DNS server"
+    echo "4) Ganti domain (sekarang: $domain)"
+    echo "5) Keluar"
+    echo -n "Pilih opsi: "
+}
+
+function check_dns() {
+    echo "Checking DNS resolution for $domain on global DNS servers..."
+    for dns in "${dns_servers[@]}"
+    do
+        echo "Querying DNS server: $dns"
+        dig @$dns $domain +short
+        echo "-----------------------------"
+    done
+}
+
+function add_dns_server() {
+    echo -n "Masukkan IP DNS server baru: "
+    read new_dns
+    # Validasi format IP sederhana
+    if [[ $new_dns =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        dns_servers+=("$new_dns")
+        echo "DNS server $new_dns berhasil ditambahkan."
+    else
+        echo "Format IP tidak valid!"
+    fi
+}
+
+function list_dns_servers() {
+    echo "Daftar DNS server:"
+    for dns in "${dns_servers[@]}"
+    do
+        echo "- $dns"
+    done
+}
+
+function change_domain() {
+    echo -n "Masukkan domain baru: "
+    read new_domain
+    if [[ -n "$new_domain" ]]; then
+        domain=$new_domain
+        echo "Domain diganti menjadi $domain"
+    else
+        echo "Domain tidak boleh kosong!"
+    fi
+}
+
+while true
+do
+    show_menu
+    read choice
+    case $choice in
+        1) check_dns ;;
+        2) add_dns_server ;;
+        3) list_dns_servers ;;
+        4) change_domain ;;
+        5) echo "Keluar..."; exit 0 ;;
+        *) echo "Pilihan tidak valid!" ;;
+    esac
+    echo ""
+done
+
