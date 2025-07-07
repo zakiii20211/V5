@@ -1,211 +1,120 @@
-#!/bin/bash
-
-# ==============================================================================
-# Skrip Bash untuk Bypass Domain via Cloudflare WARP WireGuard
+# ==========================================================================================
+# SKRIP BYPASS NETFLIX & HOTSTAR DENGAN CLOUDFLARE WARP (WIREGUARD IPv4 & IPv6)
+# Dibuat untuk RouterOS v7+
 #
-# Deskripsi:
-# Mengalihkan lalu lintas untuk domain tertentu (Netflix, Hotstar, dll.)
-# melalui interface WireGuard WARP, sementara lalu lintas lain tetap normal.
-# Mendukung IPv4 dan IPv6.
+# FITUR:
+# - Setup sekali jalan.
+# - Menu ON / OFF / STATUS yang mudah.
+# - Mendukung IPv4 dan IPv6.
+# - Menggunakan routing mark untuk efisiensi.
 #
-# Dibuat oleh: AI Model
-# Versi: 1.1
-# ==============================================================================
+# CARA PENGGUNAAN SETELAH DIJALANKAN:
+# 1. Buka New Terminal
+# 2. Untuk mengaktifkan: /system script run Bypass-ON
+# 3. Untuk menonaktifkan: /system script run Bypass-OFF
+# 4. Untuk cek status: /system script run Bypass-STATUS
+# ==========================================================================================
 
-# --- KONFIGURASI (Silakan ubah sesuai kebutuhan) ---
+:log info "Memulai instalasi skrip Bypass Netflix & Hotstar via WARP..."
 
-# 1. Nama interface WireGuard WARP Anda.
-#    Cari tahu dengan perintah: `ip a` atau `wg show`
-#    Contoh: "wgcf", "warp", "wg0"
-WARP_INTERFACE="wgcf"
+{
+    # --- KONFIGURASI WARP (GANTI INI) ---
+    :local warpPrivateKey "PASTE_PRIVATE_KEY_ANDA_DARI_WGCF_DI_SINI"
+    :local warpAddressV4 "172.16.0.2/32"
+    :local warpAddressV6 "2606:4700:110:abcd:ef12:3456:7890:1234/128"
+    # ------------------------------------
 
-# 2. Nama dan ID untuk tabel routing kustom.
-#    Anda bisa biarkan default jika tidak ada konflik.
-WARP_TABLE_ID="100"
-WARP_TABLE_NAME="warp"
+    # --- Konfigurasi Statis (Biasanya tidak perlu diubah) ---
+    :local warpPublicKey "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
+    :local warpEndpoint "162.159.193.5:2408"
+    :local warpInterfaceName "wg-warp"
+    :local bypassComment "Bypass-Rule-NetflixHotstar"
+    :local routingMarkName "via-warp-bypass"
 
-# 3. Daftar domain yang akan di-bypass.
-#    Pisahkan dengan spasi.
-DOMAINS_TO_BYPASS=(
-    # Netflix
-    "netflix.com"
-    "nflxvideo.net"
-    "nflximg.net"
-    "nflxso.net"
-    "nflxext.com"
-    # Hotstar / Disney+
-    "hotstar.com"
-    "hotstar-cdn.net"
-    "disneyplus.com"
-    "disneystreaming.com"
-    "dssott.com"
-    "bamgrid.com"
-)
+    # 1. Hapus konfigurasi lama jika ada (untuk instalasi ulang yang bersih)
+    :log info "Membersihkan konfigurasi lama (jika ada)..."
+    /interface wireguard remove [find name=$warpInterfaceName]
+    /ip firewall mangle remove [find comment=$bypassComment]
+    /ipv6 firewall mangle remove [find comment=$bypassComment]
+    /ip route remove [find comment=$bypassComment]
+    /ipv6 route remove [find comment=$bypassComment]
+    /ip firewall address-list remove [find list=Bypass-Domains]
+    /system script remove [find name~"Bypass-"]
 
-# --- AKHIR KONFIGURASI ---
+    # 2. Membuat Interface WireGuard untuk WARP
+    :log info "Membuat interface WireGuard: $warpInterfaceName"
+    /interface wireguard add name=$warpInterfaceName private-key=$warpPrivateKey listen-port=1337 mtu=1280
 
-# Lokasi file sementara untuk menyimpan daftar IP
-IP_LIST_FILE="/tmp/warp_bypass_ips.txt"
+    # 3. Menambahkan Peer (Server WARP)
+    :log info "Menambahkan peer untuk WireGuard..."
+    /interface wireguard peers add interface=$warpInterfaceName public-key=$warpPublicKey endpoint-address=[:resolve $warpEndpoint] allowed-address=0.0.0.0/0,::/0 persistent-keepalive=25s
 
-# Cek apakah skrip dijalankan sebagai root
-if [[ $EUID -ne 0 ]]; then
-   echo "Skrip ini harus dijalankan sebagai root. Gunakan 'sudo'."
-   exit 1
-fi
+    # 4. Menambahkan Alamat IP ke Interface WireGuard
+    :log info "Menambahkan alamat IP ke interface..."
+    /ip address add address=$warpAddressV4 interface=$warpInterfaceName
+    /ipv6 address add address=$warpAddressV6 interface=$warpInterfaceName
 
-# Fungsi untuk memeriksa dependensi
-check_deps() {
-    if ! command -v dig &> /dev/null; then
-        echo "Perintah 'dig' tidak ditemukan."
-        echo "Silakan install 'dnsutils' (Debian/Ubuntu) atau 'bind-utils' (CentOS/RHEL)."
-        exit 1
-    fi
-}
+    # 5. Membuat Address List untuk Domain yang akan di-Bypass
+    :log info "Membuat address-list untuk domain target..."
+    /ip firewall address-list
+    add list=Bypass-Domains address=netflix.com comment="Netflix"
+    add list=Bypass-Domains address=nflxvideo.net comment="Netflix CDN"
+    add list=Bypass-Domains address=hotstar.com comment="Hotstar"
+    add list=Bypass-Domains address=hses.jio.com comment="Hotstar CDN"
+    # Tambahkan domain lain di sini jika perlu
 
-# Fungsi untuk menambahkan nama tabel ke /etc/iproute2/rt_tables jika belum ada
-setup_routing_table() {
-    if ! grep -q "^\s*$WARP_TABLE_ID\s+$WARP_TABLE_NAME\b" /etc/iproute2/rt_tables; then
-        echo "Menambahkan tabel routing '$WARP_TABLE_NAME' ke /etc/iproute2/rt_tables..."
-        echo "$WARP_TABLE_ID $WARP_TABLE_NAME" >> /etc/iproute2/rt_tables
-    fi
-}
+    # 6. Membuat Aturan Mangle untuk Menandai Traffic (IPv4 & IPv6)
+    :log info "Membuat aturan Mangle (tagging traffic)..."
+    /ip firewall mangle add chain=prerouting dst-address-list=Bypass-Domains action=mark-routing new-routing-mark=$routingMarkName passthrough=no comment=$bypassComment disabled=yes
+    /ipv6 firewall mangle add chain=prerouting dst-address-list=Bypass-Domains action=mark-routing new-routing-mark=$routingMarkName passthrough=no comment=$bypassComment disabled=yes
 
-# Fungsi untuk mencari IP dari semua domain
-resolve_domains() {
-    echo "Mencari alamat IP untuk domain yang ditentukan..."
-    rm -f "$IP_LIST_FILE"
-    for domain in "${DOMAINS_TO_BYPASS[@]}"; do
-        # Cari alamat IPv4 (A) dan IPv6 (AAAA)
-        dig +short "$domain" A >> "$IP_LIST_FILE"
-        dig +short "$domain" AAAA >> "$IP_LIST_FILE"
-    done
-    # Hapus baris kosong
-    sed -i '/^$/d' "$IP_LIST_FILE"
-    echo "Pencarian IP selesai. Hasil disimpan di $IP_LIST_FILE"
-}
+    # 7. Membuat Aturan Route untuk Mengarahkan Traffic (IPv4 & IPv6)
+    :log info "Membuat aturan Routing..."
+    /ip route add distance=1 gateway=$warpInterfaceName routing-mark=$routingMarkName comment=$bypassComment disabled=yes
+    /ipv6 route add distance=1 gateway=$warpInterfaceName routing-mark=$routingMarkName comment=$bypassComment disabled=yes
 
-# Fungsi untuk memulai bypass
-start_bypass() {
-    echo "Memulai bypass..."
-
-    # 1. Pastikan interface WARP aktif
-    if ! ip link show "$WARP_INTERFACE" &> /dev/null; then
-        echo "Error: Interface '$WARP_INTERFACE' tidak ditemukan atau tidak aktif."
-        exit 1
-    fi
-
-    # 2. Cari alamat IP
-    resolve_domains
-    if [ ! -s "$IP_LIST_FILE" ]; then
-        echo "Error: Gagal mendapatkan alamat IP. Periksa koneksi internet atau daftar domain."
-        exit 1
-    fi
-
-    # 3. Tambahkan rute default ke tabel kustom via interface WARP
-    # Perintah ini akan menangani IPv4 dan IPv6 secara otomatis
-    echo "Menambahkan rute default via $WARP_INTERFACE ke tabel $WARP_TABLE_NAME..."
-    ip route add default dev "$WARP_INTERFACE" table "$WARP_TABLE_NAME"
-
-    # 4. Tambahkan aturan routing untuk setiap IP
-    echo "Menambahkan aturan routing untuk setiap IP..."
-    while IFS= read -r ip; do
-        if [[ -n "$ip" ]]; then
-            ip rule add to "$ip" table "$WARP_TABLE_NAME"
-        fi
-    done < "$IP_LIST_FILE"
-
-    # 5. Bersihkan cache routing
-    ip route flush cache
-    echo -e "\nBypass berhasil diaktifkan!"
-    echo "Lalu lintas ke Netflix/Hotstar sekarang dialihkan melalui $WARP_INTERFACE."
-}
-
-# Fungsi untuk menghentikan bypass
-stop_bypass() {
-    echo "Menghentikan bypass..."
-
-    if [ ! -f "$IP_LIST_FILE" ]; then
-        echo "Tidak ada file daftar IP ($IP_LIST_FILE). Mungkin bypass belum pernah dijalankan."
-        echo "Mencoba menghapus aturan secara umum (jika ada)..."
-        # Mencoba menghapus aturan yang mungkin tersisa
-        while ip rule | grep -q "lookup $WARP_TABLE_NAME"; do
-           ip rule del lookup "$WARP_TABLE_NAME"
-        done
-    else
-        # 1. Hapus aturan routing untuk setiap IP
-        echo "Menghapus aturan routing..."
-        while IFS= read -r ip; do
-            if [[ -n "$ip" ]]; then
-                # Terus hapus sampai tidak ada lagi aturan untuk IP ini
-                while ip rule list | grep -q "to $ip table $WARP_TABLE_NAME"; do
-                    ip rule del to "$ip" table "$WARP_TABLE_NAME"
-                done
-            fi
-        done < "$IP_LIST_FILE"
-        rm -f "$IP_LIST_FILE"
-    fi
-
-    # 2. Hapus rute default dari tabel kustom
-    echo "Menghapus rute dari tabel $WARP_TABLE_NAME..."
-    ip route flush table "$WARP_TABLE_NAME"
-
-    # 3. Bersihkan cache routing
-    ip route flush cache
-    echo -e "\nBypass berhasil dihentikan."
-    echo "Semua lalu lintas kembali normal."
-}
-
-# Fungsi untuk menampilkan status
-status_bypass() {
-    echo "--- Status Bypass WARP ---"
-    if ! ip link show "$WARP_INTERFACE" &> /dev/null; then
-        echo "Interface $WARP_INTERFACE: TIDAK AKTIF"
-    else
-        echo "Interface $WARP_INTERFACE: AKTIF"
-    fi
-
-    echo ""
-    echo "Aturan routing untuk tabel '$WARP_TABLE_NAME':"
-    ip rule show | grep "lookup $WARP_TABLE_NAME" || echo "Tidak ada aturan ditemukan."
-
-    echo ""
-    echo "Isi tabel routing '$WARP_TABLE_NAME':"
-    ip route show table "$WARP_TABLE_NAME" || echo "Tabel kosong."
+    # 8. Membuat Skrip Menu ON / OFF / STATUS
+    :log info "Membuat skrip menu ON/OFF/STATUS..."
     
-    echo ""
-    echo "Daftar IP yang di-bypass (jika aktif):"
-    if [ -f "$IP_LIST_FILE" ]; then
-        cat "$IP_LIST_FILE"
-    else
-        echo "Tidak ada file daftar IP. Bypass kemungkinan tidak aktif."
-    fi
-    echo "--------------------------"
+    # --- SKRIP ON ---
+    /system script add name="Bypass-ON" source={
+        :log info "================ BYPASS ON ================"
+        :log info "Mengaktifkan aturan Mangle dan Route untuk Bypass..."
+        /ip firewall mangle enable [find comment="Bypass-Rule-NetflixHotstar"]
+        /ipv6 firewall mangle enable [find comment="Bypass-Rule-NetflixHotstar"]
+        /ip route enable [find comment="Bypass-Rule-NetflixHotstar"]
+        /ipv6 route enable [find comment="Bypass-Rule-NetflixHotstar"]
+        :log info "Bypass Netflix & Hotstar telah DIAKTIFKAN."
+        :log info "==========================================="
+    }
+    
+    # --- SKRIP OFF ---
+    /system script add name="Bypass-OFF" source={
+        :log info "================ BYPASS OFF ==============="
+        :log info "Menonaktifkan aturan Mangle dan Route untuk Bypass..."
+        /ip firewall mangle disable [find comment="Bypass-Rule-NetflixHotstar"]
+        /ipv6 firewall mangle disable [find comment="Bypass-Rule-NetflixHotstar"]
+        /ip route disable [find comment="Bypass-Rule-NetflixHotstar"]
+        /ipv6 route disable [find comment="Bypass-Rule-NetflixHotstar"]
+        :log info "Bypass Netflix & Hotstar telah DINONAKTIFKAN."
+        :log info "==========================================="
+    }
+
+    # --- SKRIP STATUS ---
+    /system script add name="Bypass-STATUS" source={
+        :log info "============== STATUS BYPASS =============="
+        :if ([/ip firewall mangle get [find comment="Bypass-Rule-NetflixHotstar"] disabled] = false) do={
+            :log info "Status: AKTIF (ON)"
+            :log info "--- Cek Koneksi WireGuard ---"
+            /interface wireguard peers print
+            :log info "--- IP yang sedang di-Bypass ---"
+            /ip firewall address-list print where list=Bypass-Domains
+        } else={
+            :log info "Status: TIDAK AKTIF (OFF)"
+        }
+        :log info "==========================================="
+    }
+
+    :log info "INSTALASI SELESAI!"
+    :log info "Gunakan perintah '/system script run Bypass-ON' untuk mengaktifkan."
 }
-
-# Logika utama skrip
-case "$1" in
-    start)
-        check_deps
-        setup_routing_table
-        start_bypass
-        ;;
-    stop)
-        stop_bypass
-        ;;
-    restart)
-        stop_bypass
-        sleep 1
-        check_deps
-        setup_routing_table
-        start_bypass
-        ;;
-    status)
-        status_bypass
-        ;;
-    *)
-        echo "Penggunaan: sudo $0 {start|stop|restart|status}"
-        exit 1
-        ;;
-esac
-
-exit 0
