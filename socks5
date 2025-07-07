@@ -1,0 +1,280 @@
+#!/bin/bash
+
+# ==================================================================================
+# Skrip Pengurusan Proksi SOCKS5 Lengkap (Dante)
+# ==================================================================================
+#
+# Ciri-ciri:
+# - Menu Interaktif: Pasang, Mula (On), Henti (Off), Mula Semula, Status, Info.
+# - Pemasangan Sekali Jalan: Mengkonfigurasi segalanya dari awal.
+# - Pengurusan Perkhidmatan: Mudah untuk menghidupkan dan mematikan proksi.
+# - Simpan & Papar Info: Menyimpan maklumat log masuk dan boleh dipaparkan semula.
+# - Sokongan IPv6 & Fail PAC: Termasuk semua ciri dari skrip sebelumnya.
+# - Sesuai untuk Debian, Ubuntu, dan distro berasaskan Debian.
+#
+# ==================================================================================
+
+# --- Pembolehubah Konfigurasi ---
+SOCKS_PORT="1080"
+DANTE_CONF_FILE="/etc/danted.conf"
+INFO_FILE="/etc/dante/proxy_info.conf" # Fail untuk simpan maklumat
+PAC_FILE_PATH="/var/www/html/proxy.pac"
+WEB_SERVER_ROOT="/var/www/html"
+
+# --- Warna untuk Output ---
+C_RESET='\e[0m'
+C_RED='\e[1;31m'
+C_GREEN='\e[1;32m'
+C_YELLOW='\e[1;33m'
+C_BLUE='\e[1;34m'
+C_CYAN='\e[1;36m'
+C_WHITE='\e[1;37m'
+
+# ==================================================
+# FUNGSI-FUNGSI UTAMA
+# ==================================================
+
+# Fungsi untuk memeriksa jika skrip dijalankan sebagai root
+check_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        echo -e "${C_RED}Ralat: Skrip ini mesti dijalankan sebagai root atau dengan sudo.${C_RESET}"
+        exit 1
+    fi
+}
+
+# --- Fungsi untuk Pemasangan (Hanya dijalankan sekali) ---
+
+run_install() {
+    if [ -f "$INFO_FILE" ]; then
+        echo -e "${C_YELLOW}Amaran: Proksi nampaknya telah dipasang (fail info ditemui).${C_RESET}"
+        read -p "Adakah anda pasti mahu memasang semula? (Ini akan menetapkan semula kata laluan) [y/N]: " confirm
+        if [[ ! "$confirm" =~ ^[yY]$ ]]; then
+            echo "Pemasangan dibatalkan."
+            exit 0
+        fi
+    fi
+
+    echo -e "${C_BLUE}--- Memulakan Proses Pemasangan Proksi SOCKS5 ---${C_RESET}"
+    
+    # 1. Pasang Pakej
+    echo -e "${C_CYAN}[*] Mengemaskini dan memasang pakej (dante-server, curl, nginx)...${C_RESET}"
+    apt-get update -y > /dev/null 2>&1
+    apt-get install dante-server curl nginx -y
+    if ! command -v danted &> /dev/null; then
+        echo -e "${C_RED}Ralat: Pemasangan dante-server gagal.${C_RESET}"
+        exit 1
+    fi
+    
+    # 2. Dapatkan IP & Antaramuka
+    echo -e "${C_CYAN}[*] Mendapatkan alamat IP server...${C_RESET}"
+    SERVER_IPV4=$(curl -s -4 https://ifconfig.me/ip || hostname -I | awk '{print $1}')
+    SERVER_IPV6=$(curl -s -6 https://ifconfig.me/ip || ip -6 addr show scope global | grep -v " fe80" | sed -n 's/.*inet6 \([0-9a-f:]\+\).*/\1/p' | head -n 1)
+    INTERFACE=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
+    
+    # 3. Konfigurasi Dante
+    echo -e "${C_CYAN}[*] Mengkonfigurasi dante-server...${C_RESET}"
+    cat << EOF > "$DANTE_CONF_FILE"
+logoutput: /var/log/danted.log
+internal: 0.0.0.0 port = ${SOCKS_PORT}
+internal: :: port = ${SOCKS_PORT}
+external: ${INTERFACE}
+socksmethod: username
+user.privileged: root
+user.unprivileged: nobody
+client pass { from: 0.0.0.0/0 to: 0.0.0.0/0; log: error connect disconnect; }
+client pass { from: ::/0 to: ::/0; log: error connect disconnect; }
+socks pass { from: 0.0.0.0/0 to: 0.0.0.0/0; command: bind connect udpassociate; log: error connect disconnect; }
+socks pass { from: ::/0 to: ::/0; command: bind connect udpassociate; log: error connect disconnect; }
+EOF
+    
+    # 4. Cipta Pengguna Proksi
+    USERNAME="proxyuser_$(openssl rand -hex 4)"
+    PASSWORD=$(openssl rand -base64 12 | tr -d '+/=' | head -c 12)
+    echo -e "${C_CYAN}[*] Mencipta pengguna proksi '${USERNAME}'...${C_RESET}"
+    if id "$USERNAME" &>/dev/null; then userdel -r "$USERNAME"; fi
+    useradd --no-create-home --shell /usr/sbin/nologin "$USERNAME"
+    echo "$USERNAME:$PASSWORD" | chpasswd
+
+    # 5. Hasilkan Fail PAC
+    echo -e "${C_CYAN}[*] Menjana fail PAC...${C_RESET}"
+    mkdir -p "$WEB_SERVER_ROOT"
+    cat << EOF > "$PAC_FILE_PATH"
+function FindProxyForURL(url, host) {
+    var proxy = "SOCKS5 ${SERVER_IPV4}:${SOCKS_PORT}; SOCKS ${SERVER_IPV4}:${SOCKS_PORT}; DIRECT";
+    var domains = [
+        "*.netflix.com", "*.nflxvideo.net", "*.nflximg.net", "*.nflxso.net",
+        "*.hulu.com", "*.huluim.com", "*.hulustream.com",
+        "*.disneyplus.com", "*.cdn.unid.disney.com", "*.dssott.com", "*.disneystreaming.com",
+        "*.hbomax.com", "*.hbo.com", "*.hotstar.com",
+        "*.primevideo.com", "*.amazonvideo.com",
+        "*.bbc.co.uk", "*.bbc.com", "*.iplayer.co.uk",
+        "*.spotify.com"
+    ];
+    for (var i = 0; i < domains.length; i++) {
+        if (shExpMatch(host, domains[i])) {
+            return proxy;
+        }
+    }
+    return "DIRECT";
+}
+EOF
+    chmod 644 "$PAC_FILE_PATH"
+    chown www-data:www-data "$WEB_SERVER_ROOT" -R
+
+    # 6. Simpan Maklumat
+    echo -e "${C_CYAN}[*] Menyimpan maklumat proksi...${C_RESET}"
+    mkdir -p /etc/dante
+    cat << EOF > "$INFO_FILE"
+# Maklumat Konfigurasi Proksi (Jangan kongsi fail ini)
+SERVER_IPV4="${SERVER_IPV4}"
+SERVER_IPV6="${SERVER_IPV6}"
+SOCKS_PORT="${SOCKS_PORT}"
+USERNAME="${USERNAME}"
+PASSWORD="${PASSWORD}"
+PAC_URL_IPV4="http://${SERVER_IPV4}/proxy.pac"
+PAC_URL_IPV6="http://[${SERVER_IPV6}]/proxy.pac"
+EOF
+    chmod 600 "$INFO_FILE" # Lindungi fail maklumat
+
+    # 7. Aktifkan & Mulakan Perkhidmatan
+    echo -e "${C_CYAN}[*] Mengaktifkan dan memulakan perkhidmatan...${C_RESET}"
+    systemctl enable danted > /dev/null 2>&1
+    systemctl enable nginx > /dev/null 2>&1
+    systemctl restart danted
+    systemctl restart nginx
+
+    echo -e "\n${C_GREEN}--- Pemasangan Selesai! ---${C_RESET}"
+    show_info
+}
+
+# --- Fungsi Pengurusan ---
+
+check_installation() {
+    if [ ! -f "$INFO_FILE" ]; then
+        echo -e "${C_RED}Ralat: Proksi belum dipasang. Sila jalankan pilihan 'install' dahulu.${C_RESET}"
+        exit 1
+    fi
+}
+
+start_proxy() {
+    check_installation
+    echo -e "${C_CYAN}Menghidupkan (ON) perkhidmatan proksi...${C_RESET}"
+    systemctl start danted
+    if systemctl is-active --quiet danted; then
+        echo -e "${C_GREEN}Proksi SOCKS5 berjaya dihidupkan.${C_RESET}"
+    else
+        echo -e "${C_RED}Gagal menghidupkan proksi. Sila semak status.${C_RESET}"
+    fi
+}
+
+stop_proxy() {
+    check_installation
+    echo -e "${C_CYAN}Mematikan (OFF) perkhidmatan proksi...${C_RESET}"
+    systemctl stop danted
+    if ! systemctl is-active --quiet danted; then
+        echo -e "${C_GREEN}Proksi SOCKS5 berjaya dimatikan.${C_RESET}"
+    else
+        echo -e "${C_RED}Gagal mematikan proksi.${C_RESET}"
+    fi
+}
+
+restart_proxy() {
+    check_installation
+    echo -e "${C_CYAN}Memulakan semula perkhidmatan proksi...${C_RESET}"
+    systemctl restart danted
+    sleep 2
+    if systemctl is-active --quiet danted; then
+        echo -e "${C_GREEN}Proksi SOCKS5 berjaya dimulakan semula.${C_RESET}"
+    else
+        echo -e "${C_RED}Gagal memulakan semula proksi.${C_RESET}"
+    fi
+}
+
+show_status() {
+    check_installation
+    echo -e "${C_CYAN}--- Status Perkhidmatan Proksi (Dante) ---${C_RESET}"
+    systemctl status danted --no-pager
+}
+
+show_info() {
+    check_installation
+    # Muatkan maklumat dari fail
+    source "$INFO_FILE"
+    
+    echo -e "${C_WHITE}===================================================================${C_RESET}"
+    echo -e "${C_GREEN}          Maklumat Konfigurasi Proksi SOCKS5 Anda                ${C_RESET}"
+    echo -e "${C_WHITE}===================================================================${C_RESET}"
+    echo ""
+    echo -e "  ${C_YELLOW}Alamat Server IP:${C_RESET} ${C_WHITE}${SERVER_IPV4}${C_RESET}"
+    [ -n "$SERVER_IPV6" ] && echo -e "  ${C_YELLOW}Alamat Server IPv6:${C_RESET} ${C_WHITE}${SERVER_IPV6}${C_RESET}"
+    echo -e "  ${C_YELLOW}Port SOCKS5:${C_RESET}      ${C_WHITE}${SOCKS_PORT}${C_RESET}"
+    echo -e "  ${C_YELLOW}Nama Pengguna:${C_RESET}    ${C_WHITE}${USERNAME}${C_RESET}"
+    echo -e "  ${C_YELLOW}Kata Laluan:${C_RESET}      ${C_WHITE}${PASSWORD}${C_RESET}"
+    echo ""
+    echo -e "${C_CYAN}--- Tetapan Automatik (Disyorkan) ---${C_RESET}"
+    echo "Guna salah satu URL PAC ini dalam tetapan proksi peranti anda:"
+    echo -e "  ${C_WHITE}URL PAC (IPv4):${C_RESET} \e[4m${PAC_URL_IPV4}\e[0m"
+    [ -n "$SERVER_IPV6" ] && echo -e "  ${C_WHITE}URL PAC (IPv6):${C_RESET} \e[4m${PAC_URL_IPV6}\e[0m"
+    echo ""
+    echo -e "${C_CYAN}--- Tetapan Manual (Semua trafik lalu proksi) ---${C_RESET}"
+    echo "  - Jenis Proksi: SOCKS5"
+    echo "  - Host/Server: ${SERVER_IPV4}"
+    echo "  - Port: ${SOCKS_PORT}"
+    echo ""
+    echo -e "Untuk ubah suai domain, edit fail: ${C_YELLOW}${PAC_FILE_PATH}${C_RESET}"
+    echo -e "${C_WHITE}===================================================================${C_RESET}"
+}
+
+show_menu() {
+    clear
+    echo -e "${C_WHITE}=========================================${C_RESET}"
+    echo -e "${C_CYAN}   Menu Pengurusan Proksi SOCKS5 (Dante)   ${C_RESET}"
+    echo -e "${C_WHITE}=========================================${C_RESET}"
+    echo "Pilih satu tindakan:"
+    echo ""
+    echo -e " ${C_GREEN}1)${C_RESET} Pasang Proksi (Install)"
+    echo -e " ${C_GREEN}2)${C_RESET} Mula Proksi (ON)"
+    echo -e " ${C_YELLOW}3)${C_RESET} Henti Proksi (OFF)"
+    echo -e " ${C_CYAN}4)${C_RESET} Mula Semula Proksi (Restart)"
+    echo -e " ${C_CYAN}5)${C_RESET} Semak Status (Status)"
+    echo -e " ${C_CYAN}6)${C_RESET} Papar Maklumat Log Masuk (Info)"
+    echo -e " ${C_RED}7)${C_RESET} Keluar (Exit)"
+    echo ""
+    read -p "Masukkan pilihan anda [1-7]: " choice
+
+    case $choice in
+        1) run_install ;;
+        2) start_proxy ;;
+        3) stop_proxy ;;
+        4) restart_proxy ;;
+        5) show_status ;;
+        6) show_info ;;
+        7) echo "Keluar."; exit 0 ;;
+        *) echo -e "${C_RED}Pilihan tidak sah. Sila cuba lagi.${C_RESET}"; sleep 2; show_menu ;;
+    esac
+}
+
+# ==================================================
+# ALIRAN UTAMA SKRIP
+# ==================================================
+
+check_root
+
+# Jika ada argumen baris arahan (cth: ./manage_proxy.sh install), laksanakannya.
+# Jika tidak, paparkan menu.
+if [ -n "$1" ]; then
+    case "$1" in
+        install) run_install ;;
+        start|on) start_proxy ;;
+        stop|off) stop_proxy ;;
+        restart) restart_proxy ;;
+        status) show_status ;;
+        info) show_info ;;
+        *) echo "Arahan tidak sah: $1. Guna: install, start, stop, restart, status, info."; exit 1 ;;
+    esac
+else
+    # Paparkan menu interaktif jika tiada argumen diberikan
+    show_menu
+fi
+
+exit 0
