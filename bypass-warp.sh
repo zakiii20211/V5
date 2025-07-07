@@ -15,7 +15,7 @@
 # Informasi Login Mikrotik Anda
 MIKROTIK_IP="192.168.88.1"
 MIKROTIK_USER="admin"
-MIKROTIK_PASS="password_anda" # <-- Ganti dengan password Mikrotik Anda
+MIKROTIK_PASS="khai767Rul" # <-- Ganti dengan password Mikrotik Anda
 MIKROTIK_PORT="22"            # Port SSH, biasanya 22
 
 # Informasi Kunci WARP (didapat dari wgcf)
