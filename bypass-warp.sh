@@ -1,193 +1,244 @@
 #!/bin/bash
 
 # ======================================================================================
-#  Pusat Kendali Bypass Mikrotik via BASH
+#  PENGELOLA BYPASS MIKROTIK OTOMATIS v3.0 - "ZERO EDIT" EDITION
 # ======================================================================================
-#  FITUR:
-#  - Kontrol penuh dari terminal komputer Anda (Linux/macOS/WSL).
-#  - Menggunakan SSH untuk komunikasi yang aman.
-#  - Menu lengkap: install, on, off, status.
-#  - Cukup edit konfigurasi di bawah ini sekali saja.
+#  Oleh: Asisten AI
+#  Fitur:
+#  - Tidak perlu edit skrip.
+#  - Setup interaktif pada penggunaan pertama.
+#  - Otomatis membuat dan mengambil kunci WARP.
+#  - Menyimpan konfigurasi agar tidak perlu input berulang.
+#  - Menu lengkap: install, on, off, status, uninstall.
 # ======================================================================================
 
-# --- (WAJIB) EDIT KONFIGURASI DI BAWAH INI ---
+# --- Variabel Global & Konfigurasi ---
+CONFIG_FILE="manager.conf"
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
-# Informasi Login Mikrotik Anda
-MIKROTIK_IP="192.168.88.1"
-MIKROTIK_USER="admin"
-MIKROTIK_PASS="khai767Rul" # <-- Ganti dengan password Mikrotik Anda
-MIKROTIK_PORT="22"            # Port SSH, biasanya 22
+# --- Fungsi-fungsi Inti ---
 
-# Informasi Kunci WARP (didapat dari wgcf)
-WARP_PRIVATE_KEY="PASTE_PRIVATE_KEY_ANDA_DARI_WGCF_DI_SINI"
-WARP_ADDRESS_V4="172.16.0.2/32"
-WARP_ADDRESS_V6="2606:4700:110:abcd:ef12:3456:7890:1234/128"
+# Fungsi untuk memeriksa dependensi
+check_dependencies() {
+    echo -e "${YELLOW}--> Memeriksa program yang dibutuhkan...${NC}"
+    for cmd in sshpass wgcf jq; do
+        if ! command -v $cmd &> /dev/null; then
+            echo -e "${RED}KESALAHAN: Program '$cmd' tidak ditemukan.${NC}"
+            echo "Harap instal terlebih dahulu. Petunjuk ada di dokumentasi."
+            exit 1
+        fi
+    done
+    echo -e "${GREEN}Semua program yang dibutuhkan tersedia.${NC}"
+}
 
-# --- AKHIR DARI KONFIGURASI ---
+# Fungsi untuk setup pertama kali
+run_first_time_setup() {
+    echo "======================================================"
+    echo " Selamat Datang! Ini adalah Penggunaan Pertama Kali. "
+    echo "======================================================"
+    echo "Kita akan melakukan konfigurasi awal."
+    echo ""
 
+    # 1. Minta kredensial Mikrotik
+    read -p "Masukkan IP Address Mikrotik: " MIKROTIK_IP
+    read -p "Masukkan Username Mikrotik: " MIKROTIK_USER
+    read -s -p "Masukkan Password Mikrotik: " MIKROTIK_PASS
+    echo ""
 
-# Peringatan Keamanan
-if [[ "${MIKROTIK_PASS}" == "password_anda" || "${WARP_PRIVATE_KEY}" == "PASTE_PRIVATE_KEY_ANDA_DARI_WGCF_DI_SINI" ]]; then
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo "!!! PERINGATAN: Harap edit konfigurasi di dalam file ini!    !!!"
-  echo "!!! Ganti MIKROTIK_PASS dan WARP_PRIVATE_KEY.                !!!"
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  exit 1
-fi
+    # 2. Generate profil WARP
+    echo -e "\n${YELLOW}--> Menjalankan 'wgcf' untuk membuat profil WARP...${NC}"
+    if wgcf register --accept-tos && wgcf generate; then
+        echo -e "${GREEN}Profil WARP berhasil dibuat (wgcf-profile.conf).${NC}"
+    else
+        echo -e "${RED}KESALAHAN: Gagal membuat profil WARP. Pastikan 'wgcf' berfungsi.${NC}"
+        exit 1
+    fi
 
-# Fungsi untuk menampilkan cara penggunaan
-usage() {
-  echo " "
-  echo "=========================================================="
-  echo "       Pusat Kendali Bypass Mikrotik via BASH"
-  echo "=========================================================="
-  echo " "
-  echo "Penggunaan: ./mikrotik_bypass.sh [perintah]"
-  echo " "
-  echo "Perintah yang tersedia:"
-  echo "  install   - Menginstal semua konfigurasi ke Mikrotik (HANYA SEKALI)."
-  echo "  on        - Mengaktifkan bypass."
-  echo "  off       - Menonaktifkan bypass."
-  echo "  status    - Memeriksa status bypass dan koneksi WARP."
-  echo " "
-  echo "Contoh: ./mikrotik_bypass.sh install"
-  echo "=========================================================="
+    # 3. Ekstrak kunci dari file profil
+    echo -e "${YELLOW}--> Mengekstrak kunci dari profil...${NC}"
+    WARP_PRIVATE_KEY=$(grep 'PrivateKey' wgcf-profile.conf | awk '{print $3}')
+    WARP_ADDRESSES=$(grep 'Address' wgcf-profile.conf | awk -F '= ' '{print $2}')
+    WARP_ADDRESS_V4=$(echo "$WARP_ADDRESSES" | cut -d ',' -f 1)
+    WARP_ADDRESS_V6=$(echo "$WARP_ADDRESSES" | cut -d ',' -f 2 | sed 's/ //g')
+
+    if [[ -z "$WARP_PRIVATE_KEY" || -z "$WARP_ADDRESS_V4" ]]; then
+        echo -e "${RED}KESALAHAN: Gagal mengekstrak kunci dari 'wgcf-profile.conf'.${NC}"
+        exit 1
+    fi
+
+    # 4. Simpan konfigurasi ke file
+    echo -e "${YELLOW}--> Menyimpan konfigurasi ke '$CONFIG_FILE'...${NC}"
+    cat > "$CONFIG_FILE" <<EOL
+{
+  "MIKROTIK_IP": "${MIKROTIK_IP}",
+  "MIKROTIK_USER": "${MIKROTIK_USER}",
+  "MIKROTIK_PASS": "${MIKROTIK_PASS}",
+  "WARP_PRIVATE_KEY": "${WARP_PRIVATE_KEY}",
+  "WARP_ADDRESS_V4": "${WARP_ADDRESS_V4}",
+  "WARP_ADDRESS_V6": "${WARP_ADDRESS_V6}"
+}
+EOL
+
+    echo -e "\n${GREEN}======================================================"
+    echo "      Setup Selesai! Konfigurasi Telah Disimpan.    "
+    echo "======================================================${NC}"
+    echo "Anda sekarang dapat menggunakan perintah 'install'."
+}
+
+# Muat konfigurasi dari file
+load_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        run_first_time_setup
+    fi
+    # Gunakan JQ untuk memuat variabel dengan aman
+    MIKROTIK_IP=$(jq -r .MIKROTIK_IP "$CONFIG_FILE")
+    MIKROTIK_USER=$(jq -r .MIKROTIK_USER "$CONFIG_FILE")
+    MIKROTIK_PASS=$(jq -r .MIKROTIK_PASS "$CONFIG_FILE")
+    WARP_PRIVATE_KEY=$(jq -r .WARP_PRIVATE_KEY "$CONFIG_FILE")
+    WARP_ADDRESS_V4=$(jq -r .WARP_ADDRESS_V4 "$CONFIG_FILE")
+    WARP_ADDRESS_V6=$(jq -r .WARP_ADDRESS_V6 "$CONFIG_FILE")
 }
 
 # Fungsi untuk mengirim perintah ke Mikrotik via SSH
-run_ssh_command() {
-  sshpass -p "${MIKROTIK_PASS}" ssh -p "${MIKROTIK_PORT}" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${MIKROTIK_USER}@${MIKROTIK_IP}" "$1"
+run_ssh() {
+    sshpass -p "${MIKROTIK_PASS}" ssh -p 22 -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${MIKROTIK_USER}@${MIKROTIK_IP}" "$1"
 }
 
-# Fungsi untuk menginstal semua konfigurasi
-install() {
-  echo ">>> Memulai instalasi ke Mikrotik di ${MIKROTIK_IP}..."
-  
-  # Perintah RouterOS yang akan dikirim
-  read -r -d '' MIKROTIK_SCRIPT <<'EOF'
-{
-    :log warning "===== MEMULAI INSTALASI BYPASS v2 DARI SCRIPT BASH ====="
+# Fungsi untuk menampilkan menu bantuan
+usage() {
+    echo " "
+    echo "=========================================================="
+    echo "       PENGELOLA BYPASS MIKROTIK OTOMATIS v3.0"
+    echo "=========================================================="
+    echo " "
+    echo "Penggunaan: ./mikrotik_manager.sh [perintah]"
+    echo " "
+    echo "Perintah yang tersedia:"
+    echo -e "  ${GREEN}install${NC}    - Menginstal semua konfigurasi ke Mikrotik."
+    echo -e "  ${GREEN}on${NC}         - Mengaktifkan bypass."
+    echo -e "  ${GREEN}off${NC}        - Menonaktifkan bypass."
+    echo -e "  ${YELLOW}status${NC}     - Memeriksa status bypass dan koneksi WARP."
+    echo -e "  ${RED}uninstall${NC}  - Menghapus semua konfigurasi bypass dari Mikrotik."
+    echo " "
+}
 
+# --- Logika Perintah ---
+
+install_logic() {
+    echo -e "${YELLOW}>>> Memulai instalasi ke Mikrotik di ${MIKROTIK_IP}...${NC}"
+    
+    # Perintah RouterOS yang akan dikirim, dengan placeholder
+    read -r -d '' ROS_SCRIPT <<EOF
+{
+    :log warning "===== MEMULAI INSTALASI BYPASS v3.0 ====="
     :local warpPrivateKey "%WARP_PRIVATE_KEY%"
     :local warpAddressV4 "%WARP_ADDRESS_V4%"
     :local warpAddressV6 "%WARP_ADDRESS_V6%"
-
-    :local warpPublicKey "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
-    :local warpEndpoint "162.159.193.5:2408"
-    :local warpInterfaceName "wg-warp"
-    :local commonComment "Bypass-WARP-v2"
-    :local routingMarkName "via-warp-bypass"
-    :local addressListName "Bypass-Domains"
+    :local commonComment "Bypass-Auto-v3"
+    :local warpInterfaceName "wg-warp-auto"
 
     :log info "[SETUP] Membersihkan konfigurasi lama..."
-    /interface wireguard remove [find name=$warpInterfaceName]
-    /ip firewall mangle remove [find comment=$commonComment]
-    /ipv6 firewall mangle remove [find comment=$commonComment]
-    /ip route remove [find comment=$commonComment]
-    /ipv6 route remove [find comment=$commonComment]
-    /ip firewall address-list remove [find list=$addressListName]
-    /system script remove [find name="Bypass-Menu"]
-
-    :log info "[SETUP] Membuat interface WireGuard '$warpInterfaceName'..."
-    /interface wireguard add name=$warpInterfaceName private-key=$warpPrivateKey listen-port=1337 mtu=1280 comment=$commonComment
-    /interface wireguard peers add interface=$warpInterfaceName public-key=$warpPublicKey endpoint-address=[:resolve $warpEndpoint] allowed-address=0.0.0.0/0,::/0 persistent-keepalive=25s comment=$commonComment
-
+    /interface wireguard remove [find name=\$warpInterfaceName]
+    /ip firewall mangle remove [find comment=\$commonComment]
+    /ipv6 firewall mangle remove [find comment=\$commonComment]
+    /ip route remove [find comment=\$commonComment]
+    /ipv6 route remove [find comment=\$commonComment]
+    /ip firewall address-list remove [find list="Bypass-Domains"]
+    
+    :log info "[SETUP] Membuat interface WireGuard..."
+    /interface wireguard add name=\$warpInterfaceName private-key=\$warpPrivateKey listen-port=1337 mtu=1280 comment=\$commonComment
+    /interface wireguard peers add interface=\$warpInterfaceName public-key="bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=" endpoint-address=[:resolve 162.159.193.5] endpoint-port=2408 allowed-address=0.0.0.0/0,::/0 persistent-keepalive=25s comment=\$commonComment
+    
     :log info "[SETUP] Menambahkan alamat IP..."
-    /ip address add address=$warpAddressV4 interface=$warpInterfaceName comment=$commonComment
-    /ipv6 address add address=$warpAddressV6 interface=$warpInterfaceName comment=$commonComment
-
-    :log info "[FIREWALL] Membuat address-list '$addressListName'..."
+    /ip address add address=\$warpAddressV4 interface=\$warpInterfaceName comment=\$commonComment
+    /ipv6 address add address=\$warpAddressV6 interface=\$warpInterfaceName comment=\$commonComment
+    
+    :log info "[FIREWALL] Membuat address-list..."
     /ip firewall address-list
-    add list=$addressListName address=netflix.com comment=$commonComment
-    add list=$addressListName address=nflxvideo.net comment=$commonComment
-    add list=$addressListName address=hotstar.com comment=$commonComment
-    add list=$addressListName address=hses.jio.com comment=$commonComment
+    add list="Bypass-Domains" address=netflix.com comment=\$commonComment
+    add list="Bypass-Domains" address=nflxvideo.net comment=\$commonComment
+    add list="Bypass-Domains" address=hotstar.com comment=\$commonComment
+    add list="Bypass-Domains" address=hses.jio.com comment=\$commonComment
 
     :log info "[FIREWALL] Membuat aturan Mangle dan Route (disabled by default)..."
-    /ip firewall mangle add chain=prerouting dst-address-list=$addressListName action=mark-routing new-routing-mark=$routingMarkName passthrough=no comment=$commonComment disabled=yes
-    /ipv6 firewall mangle add chain=prerouting dst-address-list=$addressListName action=mark-routing new-routing-mark=$routingMarkName passthrough=no comment=$commonComment disabled=yes
-    /ip route add distance=1 gateway=$warpInterfaceName routing-mark=$routingMarkName comment=$commonComment disabled=yes
-    /ipv6 route add distance=1 gateway=$warpInterfaceName routing-mark=$routingMarkName comment=$commonComment disabled=yes
+    /ip firewall mangle add chain=prerouting dst-address-list="Bypass-Domains" action=mark-routing new-routing-mark="via-warp-bypass" passthrough=no comment=\$commonComment disabled=yes
+    /ipv6 firewall mangle add chain=prerouting dst-address-list="Bypass-Domains" action=mark-routing new-routing-mark="via-warp-bypass" passthrough=no comment=\$commonComment disabled=yes
+    /ip route add distance=1 gateway=\$warpInterfaceName routing-mark="via-warp-bypass" comment=\$commonComment disabled=yes
+    /ipv6 route add distance=1 gateway=\$warpInterfaceName routing-mark="via-warp-bypass" comment=\$commonComment disabled=yes
     
-    # Skrip Menu ini sekarang hanya untuk backup, kontrol utama ada di BASH
-    /system script add name="Bypass-Menu" source=":log info \"Kontrol dipindahkan ke skrip BASH eksternal.\""
-
-    :log warning "===== INSTALASI BYPASS v2 SELESAI! ====="
+    :log warning "===== INSTALASI SELESAI! ====="
 }
 EOF
 
-  # Mengganti placeholder dengan nilai variabel
-  MIKROTIK_SCRIPT="${MIKROTIK_SCRIPT//%WARP_PRIVATE_KEY%/$WARP_PRIVATE_KEY}"
-  MIKROTIK_SCRIPT="${MIKROTIK_SCRIPT//%WARP_ADDRESS_V4%/$WARP_ADDRESS_V4}"
-  MIKROTIK_SCRIPT="${MIKROTIK_SCRIPT//%WARP_ADDRESS_V6%/$WARP_ADDRESS_V6}"
+    # Ganti placeholder dengan nilai sebenarnya
+    ROS_SCRIPT="${ROS_SCRIPT//%WARP_PRIVATE_KEY%/$WARP_PRIVATE_KEY}"
+    ROS_SCRIPT="${ROS_SCRIPT//%WARP_ADDRESS_V4%/$WARP_ADDRESS_V4}"
+    ROS_SCRIPT="${ROS_SCRIPT//%WARP_ADDRESS_V6%/$WARP_ADDRESS_V6}"
 
-  # Mengirim skrip ke Mikrotik
-  run_ssh_command "$MIKROTIK_SCRIPT"
-  echo ">>> Instalasi selesai."
+    run_ssh "$ROS_SCRIPT"
+    echo -e "${GREEN}>>> Instalasi selesai.${NC}"
 }
 
-# Fungsi untuk mengaktifkan bypass
-turn_on() {
-  echo ">>> Mengaktifkan bypass di Mikrotik..."
-  COMMAND='
-    :log warning "--- [BASH] Mengaktifkan Bypass Netflix & Hotstar ---";
-    /ip firewall mangle enable [find comment="Bypass-WARP-v2"];
-    /ipv6 firewall mangle enable [find comment="Bypass-WARP-v2"];
-    /ip route enable [find comment="Bypass-WARP-v2"];
-    /ipv6 route enable [find comment="Bypass-WARP-v2"];
-    :log info "Status Bypass sekarang: AKTIF (ON)";
-  '
-  run_ssh_command "$COMMAND"
-  echo ">>> Selesai."
+on_logic() {
+    echo ">>> Mengaktifkan bypass..."
+    run_ssh ':log info "--- [BASH] Mengaktifkan Bypass ---"; /ip firewall mangle enable [find comment="Bypass-Auto-v3"]; /ipv6 firewall mangle enable [find comment="Bypass-Auto-v3"]; /ip route enable [find comment="Bypass-Auto-v3"]; /ipv6 route enable [find comment="Bypass-Auto-v3"];'
+    echo -e "${GREEN}Bypass telah DIAKTIFKAN.${NC}"
 }
 
-# Fungsi untuk menonaktifkan bypass
-turn_off() {
-  echo ">>> Menonaktifkan bypass di Mikrotik..."
-  COMMAND='
-    :log warning "--- [BASH] Menonaktifkan Bypass Netflix & Hotstar ---";
-    /ip firewall mangle disable [find comment="Bypass-WARP-v2"];
-    /ipv6 firewall mangle disable [find comment="Bypass-WARP-v2"];
-    /ip route disable [find comment="Bypass-WARP-v2"];
-    /ipv6 route disable [find comment="Bypass-WARP-v2"];
-    :log info "Status Bypass sekarang: TIDAK AKTIF (OFF)";
-  '
-  run_ssh_command "$COMMAND"
-  echo ">>> Selesai."
+off_logic() {
+    echo ">>> Menonaktifkan bypass..."
+    run_ssh ':log info "--- [BASH] Menonaktifkan Bypass ---"; /ip firewall mangle disable [find comment="Bypass-Auto-v3"]; /ipv6 firewall mangle disable [find comment="Bypass-Auto-v3"]; /ip route disable [find comment="Bypass-Auto-v3"]; /ipv6 route disable [find comment="Bypass-Auto-v3"];'
+    echo -e "${RED}Bypass telah DINONAKTIFKAN.${NC}"
 }
 
-# Fungsi untuk memeriksa status
-check_status() {
-  echo ">>> Memeriksa status di Mikrotik..."
-  COMMAND='
-    :log warning "--- [BASH] Cek Status Bypass ---";
-    :local status "TIDAK AKTIF (OFF)";
-    :if ([/ip firewall mangle get [find comment="Bypass-WARP-v2"] disabled] = false) do={ :set status "AKTIF (ON)"; }
-    :log info "Status Aturan Bypass: $status";
-    :log info "--- Status Koneksi WireGuard (WARP) ---";
-    /interface wireguard peers print;
-  '
-  run_ssh_command "$COMMAND"
+status_logic() {
+    echo ">>> Memeriksa status..."
+    run_ssh '
+      :log info "--- [BASH] Cek Status ---";
+      :local status "TIDAK AKTIF (OFF)";
+      :if ([/ip firewall mangle get [find comment="Bypass-Auto-v3"] disabled] = false) do={ :set status "AKTIF (ON)"; }
+      :put "Status Aturan Bypass: $status";
+      :put "--- Status Koneksi WireGuard (WARP) ---";
+      /interface wireguard peers print;
+    '
 }
 
-# Logika Menu Utama
+uninstall_logic() {
+    echo -e "${RED}PERINGATAN! Ini akan menghapus SEMUA konfigurasi bypass dari Mikrotik.${NC}"
+    read -p "Apakah Anda yakin ingin melanjutkan? (y/n): " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        echo ">>> Menghapus instalasi..."
+        run_ssh '
+          :log warning "--- [BASH] Menghapus Instalasi Bypass ---";
+          /interface wireguard remove [find comment="Bypass-Auto-v3"];
+          /ip firewall mangle remove [find comment="Bypass-Auto-v3"];
+          /ipv6 firewall mangle remove [find comment="Bypass-Auto-v3"];
+          /ip route remove [find comment="Bypass-Auto-v3"];
+          /ipv6 route remove [find comment="Bypass-Auto-v3"];
+          /ip firewall address-list remove [find comment="Bypass-Auto-v3"];
+          :log info "Penghapusan selesai.";
+        '
+        echo -e "${GREEN}Semua konfigurasi bypass telah dihapus dari Mikrotik.${NC}"
+    else
+        echo "Penghapusan dibatalkan."
+    fi
+}
+
+
+# --- Program Utama ---
+check_dependencies
+load_config
+
 case "$1" in
-  install)
-    install
-    ;;
-  on)
-    turn_on
-    ;;
-  off)
-    turn_off
-    ;;
-  status)
-    check_status
-    ;;
-  *)
-    usage
-    exit 1
-    ;;
+    install) install_logic ;;
+    on) on_logic ;;
+    off) off_logic ;;
+    status) status_logic ;;
+    uninstall) uninstall_logic ;;
+    *) usage ;;
 esac
 
 exit 0
