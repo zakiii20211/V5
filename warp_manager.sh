@@ -37,9 +37,9 @@ run_first_time_setup() {
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN} Selamat Datang! Konfigurasi Awal Diperlukan. ${NC}"
     echo -e "${CYAN}======================================================${NC}"
-    read -p "Masukkan IP Address Mikrotik: " MIKROTIK_IP
-    read -p "Masukkan Username Mikrotik: " MIKROTIK_USER
-    read -s -p "Masukkan Password Mikrotik: " MIKROTIK_PASS
+    read -p "128.199.187.139: " MIKROTIK_IP
+    read -p "khai: " MIKROTIK_USER
+    read -s -p "khai767Rul123: " MIKROTIK_PASS
     echo ""
 
     echo -e "\n${YELLOW}--> Menjalankan 'wgcf' untuk membuat profil WARP...${NC}"
