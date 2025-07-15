@@ -1,0 +1,236 @@
+#!/bin/bash
+
+# ==============================================================================
+# Skrip Pengurus Cloudflare WARP dengan Fungsi Bypass Domain
+# Dicipta untuk menguruskan pemasangan dari skrip P3TERX warp.sh
+#
+# Ciri-ciri:
+# - Pasang/Nyahpasang WARP dengan sokongan IPv6.
+# - Semak status sambungan dan alamat IP awam.
+# - Tambah domain untuk di-bypass (tidak melalui VPN).
+# - Buang domain dari senarai bypass.
+# - Antara muka menu yang mesra pengguna.
+# ==============================================================================
+
+# Pembolehubah Warna untuk output yang lebih jelas
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Lokasi fail konfigurasi dan senarai bypass
+WARP_CONFIG_FILE="/etc/wireguard/wgcf.conf"
+BYPASS_LIST_FILE="/etc/wireguard/warp_bypass_domains.txt"
+
+# Fungsi untuk memeriksa jika skrip dijalankan sebagai root
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}Ralat: Skrip ini mesti dijalankan sebagai root. Sila gunakan 'sudo'${NC}"
+        exit 1
+    fi
+}
+
+# Fungsi untuk memeriksa kebergantungan (dependencies) yang diperlukan
+check_dependencies() {
+    echo -e "${YELLOW}Menyemak kebergantungan...${NC}"
+    local missing_deps=0
+    for cmd in curl dig; do
+        if ! command -v "$cmd" &> /dev/null; then
+            echo -e "${RED}- Perisian '$cmd' tidak dijumpai. Sila pasang (cth: sudo apt install $cmd atau sudo yum install $cmd).${NC}"
+            missing_deps=1
+        fi
+    done
+    if [ $missing_deps -eq 1 ]; then
+        exit 1
+    fi
+    echo -e "${GREEN}Semua kebergantungan telah dipenuhi.${NC}"
+}
+
+# Fungsi untuk memasang WARP menggunakan skrip P3TERX
+install_warp() {
+    if command -v warp &> /dev/null; then
+        echo -e "${YELLOW}WARP nampaknya sudah dipasang.${NC}"
+        echo "Adakah anda mahu memasangnya semula? (y/n)"
+        read -r choice
+        if  "$choice" != "y" ; then
+            return
+        fi
+    fi
+    
+    echo -e "${GREEN}Memulakan pemasangan WARP dengan sokongan IPv6 (wg6)...${NC}"
+    bash <(curl -fsSL git.io/warp.sh) wg6
+    
+    if [ -f "$WARP_CONFIG_FILE" ]; then
+        echo -e "${GREEN}Pemasangan WARP selesai.${NC}"
+        setup_bypass_system
+    else
+        echo -e "${RED}Pemasangan WARP gagal. Sila semak output di atas.${NC}"
+    fi
+}
+
+# Fungsi untuk menyahpasang WARP
+uninstall_warp() {
+    if ! command -v warp &> /dev/null; then
+        echo -e "${RED}WARP tidak dijumpai. Tiada apa untuk dinyahpasang.${NC}"
+        return
+    fi
+    
+    echo -e "${YELLOW}Memulakan proses nyahpasang WARP...${NC}"
+    bash <(curl -fsSL git.io/warp.sh) u
+    rm -f "$BYPASS_LIST_FILE"
+    echo -e "${GREEN}Proses nyahpasang WARP selesai.${NC}"
+}
+
+# Fungsi untuk menyemak status WARP dan IP
+check_status() {
+    if ! command -v warp &> /dev/null; then
+        echo -e "${RED}WARP tidak dipasang. Sila pasang dahulu.${NC}"
+        return
+    fi
+
+    echo -e "${YELLOW}Menyemak status sambungan WARP...${NC}"
+    warp s
+    
+    echo -e "\n${YELLOW}Menyemak Alamat IP Awam...${NC}"
+    IP4=$(curl -s4 https://ifconfig.co)
+    IP6=$(curl -s6 https://ifconfig.co)
+    
+    echo -e "Alamat IPv4: ${GREEN}${IP4:-Tiada sambungan IPv4}${NC}"
+    echo -e "Alamat IPv6: ${GREEN}${IP6:-Tiada sambungan IPv6}${NC}"
+}
+
+# Fungsi untuk menyediakan sistem bypass (mengubah suai fail wgcf.conf)
+setup_bypass_system() {
+    if [ ! -f "$WARP_CONFIG_FILE" ]; then
+        echo -e "${RED}Fail konfigurasi WARP ($WARP_CONFIG_FILE) tidak dijumpai. Sila pasang WARP dahulu.${NC}"
+        return
+    fi
+    
+    # Cipta fail senarai bypass jika belum wujud
+    touch "$BYPASS_LIST_FILE"
+    
+    # Semak jika PostUp/PostDown sudah wujud
+    if grep -q "PostUp = " "$WARP_CONFIG_FILE" || grep -q "PostDown = " "$WARP_CONFIG_FILE"; then
+        echo -e "${YELLOW}Sistem bypass nampaknya sudah disediakan dalam fail konfigurasi.${NC}"
+        return
+    fi
+    
+    echo -e "${YELLOW}Menyediakan sistem bypass dalam $WARP_CONFIG_FILE...${NC}"
+    
+    # Tambah arahan PostUp dan PostDown ke dalam fail konfigurasi
+    # Ini akan membaca senarai domain, mendapatkan IP mereka, dan menambah 'route' khas
+    POST_UP_CMD="PostUp = OLD_GATEWAY=\$(ip route | grep default | awk '{print \$3}'); for DOMAIN in \$(cat $BYPASS_LIST_FILE); do for IP in \$(dig +short \$DOMAIN A \$DOMAIN AAAA); do ip route add \$IP via \$OLD_GATEWAY; done; done"
+    POST_DOWN_CMD="PostDown = for DOMAIN in \$(cat $BYPASS_LIST_FILE); do for IP in \$(dig +short \$DOMAIN A \$DOMAIN AAAA); do ip route del \$IP; done; done"
+    
+    # Menggunakan sed untuk menambah arahan selepas baris 'PrivateKey'
+    sed -i "/^PrivateKey = .*$/a ${POST_UP_CMD}\n${POST_DOWN_CMD}" "$WARP_CONFIG_FILE"
+    
+    echo -e "${GREEN}Sistem bypass berjaya disediakan. Sila mulakan semula sambungan WARP ('warp d' kemudian 'warp c') untuk mengaktifkannya.${NC}"
+}
+
+# Fungsi untuk menambah domain ke senarai bypass
+add_bypass_domain() {
+    if [ ! -f "$BYPASS_LIST_FILE" ]; then
+        echo -e "${RED}Sistem bypass belum disediakan. Sila pasang WARP dahulu atau jalankan pilihan 'Sediakan Sistem Bypass'.${NC}"
+        return
+    fi
+
+    echo -e -n "${YELLOW}Masukkan domain yang ingin di-bypass (cth: google.com): ${NC}"
+    read -r domain
+    
+    if [ -z "$domain" ]; then
+        echo -e "${RED}Tiada domain dimasukkan. Operasi dibatalkan.${NC}"
+        return
+    fi
+    
+    # Semak jika domain sudah wujud dalam senarai
+    if grep -q "^${domain}$" "$BYPASS_LIST_FILE"; then
+        echo -e "${YELLOW}Domain '$domain' sudah ada dalam senarai bypass.${NC}"
+    else
+        echo "$domain" >> "$BYPASS_LIST_FILE"
+        echo -e "${GREEN}Domain '$domain' berjaya ditambah ke senarai bypass.${NC}"
+        echo -e "${YELLOW}Sila mulakan semula sambungan WARP ('warp d' kemudian 'warp c') untuk perubahan ini berkuat kuasa.${NC}"
+    fi
+}
+
+# Fungsi untuk membuang domain dari senarai bypass
+remove_bypass_domain() {
+    if [ ! -f "$BYPASS_LIST_FILE" ] || [ ! -s "$BYPASS_LIST_FILE" ]; then
+        echo -e "${RED}Senarai bypass kosong atau tidak wujud.${NC}"
+        return
+    fi
+    
+    echo -e "${YELLOW}Senarai domain dalam bypass:${NC}"
+    cat -n "$BYPASS_LIST_FILE"
+    echo ""
+    echo -e -n "${YELLOW}Masukkan nama domain yang tepat untuk dibuang: ${NC}"
+    read -r domain_to_remove
+
+    if [ -z "$domain_to_remove" ]; then
+        echo -e "${RED}Tiada domain dimasukkan. Operasi dibatalkan.${NC}"
+        return
+    fi
+
+    # Semak jika domain wujud sebelum cuba membuangnya
+    if grep -q "^${domain_to_remove}$" "$BYPASS_LIST_FILE"; then
+        # Menggunakan sed untuk membuang baris yang sepadan
+        sed -i "/^${domain_to_remove}$/d" "$BYPASS_LIST_FILE"
+        echo -e "${GREEN}Domain '$domain_to_remove' berjaya dibuang.${NC}"
+        echo -e "${YELLOW}Sila mulakan semula sambungan WARP ('warp d' kemudian 'warp c') untuk perubahan ini berkuat kuasa.${NC}"
+    else
+        echo -e "${RED}Domain '$domain_to_remove' tidak dijumpai dalam senarai.${NC}"
+    fi
+}
+
+# Fungsi untuk memaparkan senarai domain yang di-bypass
+show_bypass_list() {
+    if [ -f "$BYPASS_LIST_FILE" ] && [ -s "$BYPASS_LIST_FILE" ]; then
+        echo -e "${YELLOW}Berikut adalah senarai domain yang di-bypass:${NC}"
+        echo -e "${GREEN}-------------------------------------${NC}"
+        cat "$BYPASS_LIST_FILE"
+        echo -e "${GREEN}-------------------------------------${NC}"
+    else
+        echo -e "${YELLOW}Senarai bypass kosong atau tidak wujud.${NC}"
+    fi
+}
+
+# Fungsi menu utama
+main_menu() {
+    while true; do
+        clear
+        echo -e "${GREEN}==============================================${NC}"
+        echo -e "${GREEN}   Pengurus Cloudflare WARP oleh Skrip Bash   ${NC}"
+        echo -e "${GREEN}==============================================${NC}"
+        echo "1. Pasang WARP (dengan IPv6)"
+        echo "2. Semak Status WARP & IP"
+        echo "3. Tambah Domain ke Senarai Bypass"
+        echo "4. Buang Domain dari Senarai Bypass"
+        echo "5. Paparkan Senarai Bypass Semasa"
+        echo "6. Sediakan Sistem Bypass (jika gagal secara automatik)"
+        echo "7. Nyahpasang (Uninstall) WARP"
+        echo "0. Keluar"
+        echo -e "${GREEN}==============================================${NC}"
+        echo -e -n "${YELLOW}Sila masukkan pilihan anda [0-7]: ${NC}"
+        read -r choice
+
+        case $choice in
+            1) install_warp ;;
+            2) check_status ;;
+            3) add_bypass_domain ;;
+            4) remove_bypass_domain ;;
+            5) show_bypass_list ;;
+            6) setup_bypass_system ;;
+            7) uninstall_warp ;;
+            0) echo -e "${GREEN}Terima kasih kerana menggunakan skrip ini. Selamat tinggal!${NC}"; exit 0 ;;
+            *) echo -e "${RED}Pilihan tidak sah. Sila cuba lagi.${NC}" ;;
+        esac
+        
+        echo -e "\n${YELLOW}Tekan [Enter] untuk kembali ke menu utama...${NC}"
+        read -r
+    done
+}
+
+# ===== Permulaan Skrip =====
+check_root
+check_dependencies
+main_menu
