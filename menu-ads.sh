@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Definisikan kode warna untuk memudahkan
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color (untuk kembali ke warna normal)
+
+# Fungsi untuk menampilkan menu
+tampilkan_menu() {
+    clear # Bersihkan layar agar menu selalu tampil rapi
+    echo -e "${RED}==============================================${NC}"
+    echo -e "${RED}(             Menu Block Ads             )${NC}"
+    echo -e "${RED}==============================================${NC}"
+    echo "1. Install Ads Blocker"
+    echo "2. Aktifkan AdGuard (ON)"
+    echo "3. Matikan AdGuard (OFF)"
+    echo "4. Cek Status AdGuard"
+    echo "5. Kembali ke Menu"
+    echo "0. Keluar"
+    echo ""
+}
+
+# Loop utama untuk menjaga agar menu terus tampil
+while true
+do
+    tampilkan_menu
+    read -p "Pilih opsi [1-5 atau 0 untuk keluar]: " PILIHAN
+
+    case $PILIHAN in
+        1)
+            echo -e "${YELLOW}Menjalankan instalasi...${NC}"
+            # Ganti perintah di bawah ini dengan perintah instalasi Anda yang sebenarnya
+            # Contoh: sudo apt install adguardhome
+            # Untuk saat ini, kita hanya tampilkan pesan.
+            echo "Perintah instalasi akan dijalankan di sini."
+            sleep 2
+            ;;
+        2)
+            echo -e "${YELLOW}Mengaktifkan AdGuard...${NC}"
+            sudo ./adguard-toggle.sh on
+            ;;
+        3)
+            echo -e "${YELLOW}Mematikan AdGuard...${NC}"
+            sudo ./adguard-toggle.sh off
+            ;;
+        4)
+            echo -e "${YELLOW}Mengecek status AdGuard...${NC}"
+            sudo ./adguard-toggle.sh status
+            ;;
+        5)
+            # Opsi ini hanya untuk memberikan feedback, karena loop akan otomatis
+            # menampilkan menu kembali.
+            echo -e "${GREEN}Memuat ulang menu...${NC}"
+            sleep 1
+            ;;
+        0)
+            echo -e "${GREEN}Terima kasih. Keluar dari program.${NC}"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Pilihan tidak valid. Silakan coba lagi.${NC}"
+            sleep 2
+            ;;
+    esac
+
+    # Jeda sejenak agar pengguna bisa melihat output dari perintah sebelum menu muncul lagi
+    if [ "$PILIHAN" != "5" ] && [ "$PILIHAN" != "0" ]; then
+        echo ""
+        read -p "Tekan [Enter] untuk kembali ke menu..."
+    fi
+done
