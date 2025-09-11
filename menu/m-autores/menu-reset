@@ -42,7 +42,7 @@ while true; do
       auto_reset
       ;;
     2)
-      reset_manual
+      reset
       ;;
     0)
       menu
