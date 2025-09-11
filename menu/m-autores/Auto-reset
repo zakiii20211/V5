@@ -1,0 +1,261 @@
+#!/bin/bash
+
+# Warna ANSI untuk output terminal
+RED_BG='\033[41m'
+NC='\033[0m' # No Color
+
+# --- Fungsi Umum ---
+garis() {
+  echo "----------------------------------------"
+}
+
+# Fungsi untuk menampilkan bar loading
+fun_bar() {
+    CMD[0]="$1"
+    CMD[1]="$2"
+    (
+        [[ -e $HOME/fim ]] && rm $HOME/fim
+        ${CMD[0]} -y >/dev/null 2>&1
+        ${CMD[1]} -y >/dev/null 2>&1
+        touch $HOME/fim
+    ) >/dev/null 2>&1 &
+    tput civis # Sembunyikan kursor
+    echo -ne "  \033[0;33mPlease Wait Loading \033[1;37m- \033[0;33m["
+    while true; do
+        for ((i = 0; i < 18; i++)); do
+            echo -ne "\033[0;32m="
+            sleep 0.1s
+        done
+        [[ -e $HOME/fim ]] && rm $HOME/fim && break
+        echo -e "\033[0;33m]"
+        sleep 1s
+        tput cuu1 # Pindahkan kursor ke atas satu baris
+        tput dl1  # Hapus baris
+        echo -ne "  \033[0;33mPlease Wait Loading \033[1;37m- \033[0;33m["
+    done
+    echo -e "\033[0;33m]\033[1;37m -\033[1;32m OK !\033[1;37m"
+    tput cnorm # Tampilkan kursor
+}
+
+# --- Fungsi Reset Layanan (dari skrip kedua) ---
+res1() { systemctl daemon-reload; }
+res2() { systemctl restart nginx; }
+res3() { systemctl restart xray; }
+res4() { systemctl restart rc-local; }
+res5() { systemctl restart client; }
+res6() { systemctl restart server; }
+res7() { systemctl restart dropbear; }
+res8() { systemctl restart ws; }
+res9() { systemctl restart openvpn; }
+res10() { systemctl restart cron; }
+res11() { systemctl restart haproxy; }
+res12() { systemctl restart netfilter-persistent; }
+res13() { systemctl restart squid; }
+res14() {
+    systemctl restart badvpn1
+    systemctl restart badvpn2
+    systemctl restart badvpn3
+}
+
+# Fungsi untuk menjalankan semua reset otomatis layanan
+run_auto_service_reset() {
+    clear
+    echo -e "${RED_BG}                     Restart Service Server                    ${NC}"
+    echo -e ""
+    echo -e "  \033[1;91m service daemon-reload\033[1;37m"
+    fun_bar 'res1'
+    echo -e "  \033[1;91m service restart nginx\033[1;37m"
+    fun_bar 'res2'
+    echo -e "  \033[1;91m service restart xray\033[1;37m"
+    fun_bar 'res3'
+    echo -e "  \033[1;91m service restart rc-local\033[1;37m"
+    fun_bar 'res4'
+    # echo -e "  \033[1;91m service restart client dns\033[1;37m"
+    # fun_bar 'res5'
+    # echo -e "  \033[1;91m service restart server dns\033[1;37m"
+    # fun_bar 'res6'
+    echo -e "  \033[1;91m service restart dropbear\033[1;37m"
+    fun_bar 'res7'
+    echo -e "  \033[1;91m service restart websocket\033[1;37m"
+    fun_bar 'res8'
+    echo -e "  \033[1;91m service restart openvpn\033[1;37m"
+    fun_bar 'res9'
+    echo -e "  \033[1;91m service restart cron\033[1;37m"
+    fun_bar 'res10'
+    # echo -e "  \033[1;91m service restart haproxy\033[1;37m"
+    # fun_bar 'res11'
+    # echo -e "  \033[1;91m service restart netfilter-persistent\033[1;37m"
+    # fun_bar 'res12'
+    echo -e "  \033[1;91m service restart squid\033[1;37m"
+    fun_bar 'res13'
+    echo -e "  \033[1;91m service restart badvpn\033[1;37m"
+    fun_bar 'res14'
+    echo -e ""
+
+    # Re-launch badvpn UDPGW screens
+    screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7100 --max-clients 1000
+    screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7200 --max-clients 1000
+    screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 1000
+    
+    echo "Reset layanan selesai."
+    read -n 1 -s -r -p "Tekan tombol apapun untuk kembali ke menu utama..."
+}
+
+# --- Fungsi dari Skrip Pertama (Menu Reset) ---
+auto_reset_menu() {
+  garis
+  echo "Melakukan reset otomatis..."
+  run_auto_service_reset # Panggil fungsi reset layanan
+  garis
+}
+
+reset_manual() {
+  garis
+  echo "Reset manual telah dipilih."
+  echo "Silakan lakukan langkah-langkah reset Anda secara manual."
+  garis
+  read -p "Tekan Enter untuk melanjutkan..."
+}
+
+# --- Fungsi Jadwal Auto Reset (dari skrip ketiga) ---
+# Lokasi skrip ini sendiri, agar bisa dipanggil oleh cron
+# Gunakan $0 untuk mendapatkan jalur skrip saat ini.
+# Pastikan skrip ini dieksekusi dengan bash dan memiliki izin eksekusi (chmod +x)
+RESET_COMMAND_SCRIPT="$(readlink -f "$0")" 
+# Skrip ini akan dipanggil dengan argumen "auto_service_reset" untuk menjalankan fungsi reset layanan
+# Jadi perintah cron akan menjadi: "bash /path/to/this/script.sh auto_service_reset"
+
+set_cron_job() {
+  local interval=$1
+  local cron_entry=""
+
+  # Hapus entri cron sebelumnya dari skrip ini jika ada
+  (crontab -l 2>/dev/null | grep -v -F "# [AutoResetScript]" || true) | crontab -
+
+  case $interval in
+    "1jam")
+      cron_entry="0 * * * * bash $RESET_COMMAND_SCRIPT auto_service_reset # [AutoResetScript] Reset setiap 1 jam"
+      ;;
+    "3jam")
+      cron_entry="0 */3 * * * bash $RESET_COMMAND_SCRIPT auto_service_reset # [AutoResetScript] Reset setiap 3 jam"
+      ;;
+    "6jam")
+      cron_entry="0 */6 * * * bash $RESET_COMMAND_SCRIPT auto_service_reset # [AutoResetScript] Reset setiap 6 jam"
+      ;;
+    "12jam")
+      cron_entry="0 */12 * * * bash $RESET_COMMAND_SCRIPT auto_service_reset # [AutoResetScript] Reset setiap 12 jam"
+      ;;
+    *)
+      echo "Interval tidak dikenal."
+      return 1
+      ;;
+  esac
+
+  # Tambahkan entri cron baru
+  (crontab -l 2>/dev/null; echo "$cron_entry") | crontab -
+  echo "Jadwal reset diatur untuk '$interval'."
+  echo "Perintah cron yang ditambahkan: $cron_entry"
+}
+
+remove_cron_job() {
+  # Hapus entri cron yang dibuat oleh skrip ini
+  (crontab -l 2>/dev/null | grep -v -F "# [AutoResetScript]" || true) | crontab -
+  echo "Semua jadwal reset otomatis yang dibuat oleh skrip ini telah dihapus."
+}
+
+# Menu untuk pengaturan jadwal auto reset
+schedule_auto_reset_menu() {
+  while true; do
+    clear
+    garis
+    echo "       ATUR JADWAL AUTO RESET       "
+    garis
+    echo "1. Setiap 1 Jam"
+    echo "2. Setiap 3 Jam"
+    echo "3. Setiap 6 Jam"
+    echo "4. Setiap 12 Jam"
+    echo "5. Nonaktifkan Auto Reset"
+    echo "0. Kembali ke Menu Utama"
+    garis
+
+    read -p "Masukkan pilihan Anda (0-5): " pilihan
+
+    case $pilihan in
+      1)
+        set_cron_job "1jam"
+        read -p "Tekan Enter untuk melanjutkan..."
+        ;;
+      2)
+        set_cron_job "3jam"
+        read -p "Tekan Enter untuk melanjutkan..."
+        ;;
+      3)
+        set_cron_job "6jam"
+        read -p "Tekan Enter untuk melanjutkan..."
+        ;;
+      4)
+        set_cron_job "12jam"
+        read -p "Tekan Enter untuk melanjutkan..."
+        ;;
+      5)
+        remove_cron_job
+        read -p "Tekan Enter untuk melanjutkan..."
+        ;;
+      0)
+        garis
+        echo "Keluar dari pengaturan jadwal auto reset."
+        garis
+        return # Kembali ke menu utama
+        ;;
+      *)
+        echo "Pilihan tidak valid. Silakan masukkan 0-5."
+        read -p "Tekan Enter untuk melanjutkan..."
+        ;;
+    esac
+  done
+}
+
+# --- Menu Utama ---
+tampilkan_menu_utama() {
+  clear # Membersihkan layar terminal
+  garis
+  echo "         MENU UTAMA RESET         "
+  garis
+  echo "1. Reset Otomatis (Reset Layanan Server)"
+  echo "2. Reset Manual"
+  echo "3. Atur Jadwal Auto Reset"
+  echo "0. Keluar"
+  garis
+}
+
+# Periksa jika skrip dipanggil dengan argumen "auto_service_reset"
+# Ini digunakan oleh cron job untuk menjalankan reset layanan tanpa menampilkan menu
+if [[ "$1" == "auto_service_reset" ]]; then
+    run_auto_service_reset
+    exit 0
+fi
+
+# Loop utama untuk menampilkan menu utama sampai pengguna memilih untuk keluar
+while true; do
+  tampilkan_menu_utama
+  read -p "Masukkan pilihan Anda (0-3): " pilihan
+
+  case $pilihan in
+    1)
+      auto_reset_menu # Memanggil fungsi reset otomatis layanan
+      ;;
+    2)
+      reset
+      ;;
+    3)
+      schedule_auto_reset_menu # Memanggil menu pengaturan jadwal auto reset
+      ;;
+    0)
+      menu
+      ;;
+    *)
+      echo "Pilihan tidak valid. Silakan masukkan 0, 1, 2, atau 3."
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+  esac
+done
