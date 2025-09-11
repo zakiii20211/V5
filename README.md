@@ -2,8 +2,11 @@
 ```
 apt install sudo wget curl nano
 ```
-
-## UPDATE SCRIPT
+### wget install
+```
+apt install wget -y
+```
+## INSTALL SCRIPT
 ```
 apt install -y && apt update -y && apt upgrade -y && wget -q https://raw.githubusercontent.com/zakiii20211/V5/main/ubu20-deb10-stable.sh && chmod +x ubu20-deb10-stable.sh && ./ubu20-deb10-stable.sh
 ```
