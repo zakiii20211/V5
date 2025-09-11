@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# Nama file untuk perintah reset Anda. Anda harus membuat file ini
+# atau menggantinya dengan perintah langsung.
+RESET_COMMAND_FILE="/path/to/your/reset_script.sh" 
+# GANTI INI dengan lokasi skrip reset Anda yang sebenarnya,
+# atau ganti isi fungsi 'set_cron_job' dengan perintah reset langsung.
+
+garis() {
+  echo "----------------------------------------"
+}
+
+set_cron_job() {
+  local interval=$1
+  local cron_entry=""
+
+  # Hapus entri cron sebelumnya dari skrip ini jika ada
+  (crontab -l 2>/dev/null | grep -v -F "# [AutoResetScript]" || true) | crontab -
+
+  case $interval in
+    "1jam")
+      cron_entry="0 * * * * $RESET_COMMAND_FILE # [AutoResetScript] Reset setiap 1 jam"
+      ;;
+    "3jam")
+      cron_entry="0 */3 * * * $RESET_COMMAND_FILE # [AutoResetScript] Reset setiap 3 jam"
+      ;;
+    "6jam")
+      cron_entry="0 */6 * * * $RESET_COMMAND_FILE # [AutoResetScript] Reset setiap 6 jam"
+      ;;
+    "12jam")
+      cron_entry="0 */12 * * * $RESET_COMMAND_FILE # [AutoResetScript] Reset setiap 12 jam"
+      ;;
+    *)
+      echo "Interval tidak dikenal."
+      return 1
+      ;;
+  esac
+
+  # Tambahkan entri cron baru
+  (crontab -l 2>/dev/null; echo "$cron_entry") | crontab -
+  echo "Jadwal reset diatur untuk '$interval'."
+  echo "Perintah cron yang ditambahkan: $cron_entry"
+}
+
+remove_cron_job() {
+  # Hapus entri cron yang dibuat oleh skrip ini
+  (crontab -l 2>/dev/null | grep -v -F "# [AutoResetScript]" || true) | crontab -
+  echo "Semua jadwal reset otomatis yang dibuat oleh skrip ini telah dihapus."
+}
+
+tampilkan_menu() {
+  clear
+  garis
+  echo "       ATUR JADWAL AUTO RESET       "
+  garis
+  echo "1. Setiap 1 Jam"
+  echo "2. Setiap 3 Jam"
+  echo "3. Setiap 6 Jam"
+  echo "4. Setiap 12 Jam"
+  echo "5. Nonaktifkan Auto Reset" # Opsi baru untuk menghapus jadwal
+  echo "0. Keluar"
+  garis
+}
+
+# Loop utama
+while true; do
+  tampilkan_menu
+  read -p "Masukkan pilihan Anda (0-5): " pilihan
+
+  case $pilihan in
+    1)
+      set_cron_job "1jam"
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+    2)
+      set_cron_job "3jam"
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+    3)
+      set_cron_job "6jam"
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+    4)
+      set_cron_job "12jam"
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+    5)
+      remove_cron_job
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+    0)
+      garis
+      echo "Keluar dari pengaturan jadwal auto reset. Sampai jumpa!"
+      garis
+      exit 0
+      ;;
+    *)
+      echo "Pilihan tidak valid. Silakan masukkan 0-5."
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+  esac
+done

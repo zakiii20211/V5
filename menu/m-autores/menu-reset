@@ -1,0 +1,58 @@
+#!/bin/bash
+
+garis() {
+  echo "----------------------------------------"
+}
+
+auto_reset() {
+  garis
+  echo "Melakukan reset otomatis..."
+  # Tambahkan perintah reset otomatis Anda di sini
+  # Contoh: sudo systemctl restart namaservice
+  garis
+  read -p "Tekan Enter untuk melanjutkan..."
+}
+
+reset_manual() {
+  garis
+  echo "Reset manual telah dipilih."
+  echo "Silakan lakukan langkah-langkah reset Anda secara manual."
+  garis
+  read -p "Tekan Enter untuk melanjutkan..."
+}
+
+tampilkan_menu() {
+  clear # Membersihkan layar terminal
+  garis
+  echo "         MENU RESET         "
+  garis
+  echo "1. Reset Otomatis"
+  echo "2. Reset Manual"
+  echo "0. Keluar"
+  garis
+}
+
+# Loop utama untuk menampilkan menu sampai pengguna memilih untuk keluar
+while true; do
+  tampilkan_menu
+  read -p "Masukkan pilihan Anda (0-2): " pilihan
+
+  case $pilihan in
+    1)
+      auto_reset
+      ;;
+    2)
+      reset_manual
+      ;;
+    0)
+      menu
+      echo "Terima kasih, sampai jumpa!"
+      garis
+      exit 0 # Keluar dari skrip
+      ;;
+    *)
+      echo "Pilihan tidak valid. Silakan masukkan 0, 1, atau 2."
+      read -p "Tekan Enter untuk melanjutkan..."
+      ;;
+  esac
+done
