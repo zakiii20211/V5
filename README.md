@@ -1,7 +1,3 @@
-### NANO APT 
-```
-apt install sudo wget curl nano
-```
 ### wget install
 ```
 apt install wget -y
