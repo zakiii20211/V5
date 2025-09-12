@@ -1,55 +1,57 @@
 #!/bin/bash
 
+# Skrip ini direka untuk menerima path skrip menu utama sebagai argumen pertama.
+# Contoh panggilan dari menu utama: bash /path/to/this_script.sh "/path/to/main_menu.sh"
+MAIN_MENU_SCRIPT="$1"
+
 # Warna ANSI untuk output terminal
 RED_BG='\033[41m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # --- Fungsi Umum ---
 garis() {
   echo "----------------------------------------"
 }
 
-# Fungsi untuk menampilkan bar loading
+# Fungsi bar loading yang dioptimumkan (menggunakan PID, bukan fail sementara)
 fun_bar() {
-    CMD[0]="$1"
-    CMD[1]="$2"
-    (
-        [[ -e $HOME/fim ]] && rm $HOME/fim
-        ${CMD[0]} -y >/dev/null 2>&1
-        ${CMD[1]} -y >/dev/null 2>&1
-        touch $HOME/fim
-    ) >/dev/null 2>&1 &
+    local command_to_run="$1"
+    
+    # Jalankan arahan di latar belakang
+    ($command_to_run) >/dev/null 2>&1 &
+    local pid=$! # Dapatkan Process ID (PID) arahan tersebut
+
+    # Animasi loading
     tput civis # Sembunyikan kursor
     echo -ne "  \033[0;33mPlease Wait Loading \033[1;37m- \033[0;33m["
-    while true; do
-        for ((i = 0; i < 18; i++)); do
-            echo -ne "\033[0;32m="
-            sleep 0.1s
-        done
-        [[ -e $HOME/fim ]] && rm $HOME/fim && break
-        echo -e "\033[0;33m]"
-        sleep 1s
-        tput cuu1 # Pindahkan kursor ke atas satu baris
-        tput dl1  # Hapus baris
-        echo -ne "  \033[0;33mPlease Wait Loading \033[1;37m- \033[0;33m["
+    while kill -0 $pid 2>/dev/null; do
+        echo -ne "\033[0;32m="
+        sleep 0.15
     done
-    echo -e "\033[0;33m]\033[1;37m -\033[1;32m OK !\033[1;37m"
-    tput cnorm # Tampilkan kursor
+    
+    # Tunggu proses selesai dan dapatkan status keluar (berjaya atau gagal)
+    wait $pid
+    local exit_code=$?
+
+    # Paparkan hasil
+    if [ $exit_code -eq 0 ]; then
+        echo -e "\033[0;33m]\033[1;37m -\033[1;32m OK !\033[1;37m"
+    else
+        echo -e "\033[0;33m]\033[1;37m -\033[1;91m FAILED !\033[1;37m"
+    fi
+    tput cnorm # Tampilkan kursor semula
 }
 
-# --- Fungsi Reset Layanan (dari skrip kedua) ---
+# --- Fungsi Reset Layanan ---
+# Semua fungsi ini akan dipanggil oleh fun_bar
 res1() { systemctl daemon-reload; }
 res2() { systemctl restart nginx; }
 res3() { systemctl restart xray; }
 res4() { systemctl restart rc-local; }
-res5() { systemctl restart client; }
-res6() { systemctl restart server; }
 res7() { systemctl restart dropbear; }
-res8() { systemctl restart ws; }
+res8() { systemctl restart ws-stunnel; } # Pastikan nama servis ini betul
 res9() { systemctl restart openvpn; }
 res10() { systemctl restart cron; }
-res11() { systemctl restart haproxy; }
-res12() { systemctl restart netfilter-persistent; }
 res13() { systemctl restart squid; }
 res14() {
     systemctl restart badvpn1
@@ -57,49 +59,108 @@ res14() {
     systemctl restart badvpn3
 }
 
-# Fungsi untuk menjalankan semua reset otomatis layanan
+# --- Fungsi Utama Skrip ---
+
 run_auto_service_reset() {
     clear
     echo -e "${RED_BG}                     Restart Service Server                    ${NC}"
-    echo -e ""
-    echo -e "  \033[1;91m service daemon-reload\033[1;37m"
-    fun_bar 'res1'
-    echo -e "  \033[1;91m service restart nginx\033[1;37m"
-    fun_bar 'res2'
-    echo -e "  \033[1;91m service restart xray\033[1;37m"
-    fun_bar 'res3'
-    echo -e "  \033[1;91m service restart rc-local\033[1;37m"
-    fun_bar 'res4'
-    # echo -e "  \033[1;91m service restart client dns\033[1;37m"
-    # fun_bar 'res5'
-    # echo -e "  \033[1;91m service restart server dns\033[1;37m"
-    # fun_bar 'res6'
-    echo -e "  \033[1;91m service restart dropbear\033[1;37m"
-    fun_bar 'res7'
-    echo -e "  \033[1;91m service restart websocket\033[1;37m"
-    fun_bar 'res8'
-    echo -e "  \033[1;91m service restart openvpn\033[1;37m"
-    fun_bar 'res9'
-    echo -e "  \033[1;91m service restart cron\033[1;37m"
-    fun_bar 'res10'
-    # echo -e "  \033[1;91m service restart haproxy\033[1;37m"
-    # fun_bar 'res11'
-    # echo -e "  \033[1;91m service restart netfilter-persistent\033[1;37m"
-    # fun_bar 'res12'
-    echo -e "  \033[1;91m service restart squid\033[1;37m"
-    fun_bar 'res13'
-    echo -e "  \033[1;91m service restart badvpn\033[1;37m"
-    fun_bar 'res14'
-    echo -e ""
+    echo
+    echo -e "  \033[1;91m Service: daemon-reload\033[1;37m"; fun_bar res1
+    echo -e "  \033[1;91m Service: nginx\033[1;37m"; fun_bar res2
+    echo -e "  \033[1;91m Service: xray\033[1;37m"; fun_bar res3
+    echo -e "  \033[1;91m Service: rc-local\033[1;37m"; fun_bar res4
+    echo -e "  \033[1;91m Service: dropbear\033[1;37m"; fun_bar res7
+    echo -e "  \033[1;91m Service: websocket\033[1;37m"; fun_bar res8
+    echo -e "  \033[1;91m Service: openvpn\033[1;37m"; fun_bar res9
+    echo -e "  \033[1;91m Service: cron\033[1;37m"; fun_bar res10
+    echo -e "  \033[1;91m Service: squid\033[1;37m"; fun_bar res13
+    echo -e "  \033[1;91m Service: badvpn\033[1;37m"; fun_bar res14
+    echo
 
-    # Re-launch badvpn UDPGW screens
-    screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7100 --max-clients 1000
-    screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7200 --max-clients 1000
-    screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 1000
+    echo "Restarting badvpn UDPGW screens..."
+    pkill -f "badvpn-udpgw"
+    sleep 1
+    screen -dmS badvpn1 badvpn-udpgw --listen-addr 127.0.0.1:7100 --max-clients 1000
+    screen -dmS badvpn2 badvpn-udpgw --listen-addr 127.0.0.1:7200 --max-clients 1000
+    screen -dmS badvpn3 badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 1000
     
     echo "Reset layanan selesai."
-    read -n 1 -s -r -p "Tekan tombol apapun untuk kembali ke menu utama..."
+    # Hanya jeda jika bukan dijalankan oleh cron
+    if [[ "$2" != "cron" ]]; then
+        read -n 1 -s -r -p "Tekan sebarang kekunci untuk kembali..."
+    fi
 }
+
+schedule_auto_reset_menu() {
+  local RESET_COMMAND_SCRIPT
+  RESET_COMMAND_SCRIPT="$(readlink -f "$0")"
+
+  set_cron_job() {
+    local interval=$1; local cron_entry
+    (crontab -l 2>/dev/null | grep -v -F "# [AutoResetScript]" || true) | crontab -
+    case $interval in
+      "1jam") cron_entry="0 * * * * bash $RESET_COMMAND_SCRIPT '' auto_service_reset cron # [AutoResetScript]";;
+      "3jam") cron_entry="0 */3 * * * bash $RESET_COMMAND_SCRIPT '' auto_service_reset cron # [AutoResetScript]";;
+      "6jam") cron_entry="0 */6 * * * bash $RESET_COMMAND_SCRIPT '' auto_service_reset cron # [AutoResetScript]";;
+      "12jam") cron_entry="0 */12 * * * bash $RESET_COMMAND_SCRIPT '' auto_service_reset cron # [AutoResetScript]";;
+      *) echo "Interval tidak sah."; return 1;;
+    esac
+    (crontab -l 2>/dev/null; echo "$cron_entry") | crontab -
+    echo "Jadual reset telah ditetapkan untuk setiap '$interval'."
+  }
+
+  remove_cron_job() {
+    (crontab -l 2>/dev/null | grep -v -F "# [AutoResetScript]" || true) | crontab -
+    echo "Semua jadual auto reset telah dipadam."
+  }
+
+  while true; do
+    clear; garis; echo "       ATUR JADUAL AUTO RESET       "; garis
+    echo "1. Setiap 1 Jam"; echo "2. Setiap 3 Jam"; echo "3. Setiap 6 Jam"
+    echo "4. Setiap 12 Jam"; echo "5. Padam Jadual Auto Reset"; echo "0. Kembali"; garis
+    read -p "Masukkan pilihan (0-5): " pilihan
+    case $pilihan in
+      1) set_cron_job "1jam";; 2) set_cron_job "3jam";;
+      3) set_cron_job "6jam";; 4) set_cron_job "12jam";;
+      5) remove_cron_job;; 0) return;;
+      *) echo "Pilihan tidak sah.";;
+    esac
+    read -p "Tekan Enter untuk teruskan..."
+  done
+}
+
+# Periksa jika skrip dijalankan oleh cron
+if [[ "$2" == "auto_service_reset" ]]; then
+    run_auto_service_reset "$1" "$2"
+    exit 0
+fi
+
+# Loop menu utama skrip ini
+while true; do
+  clear; garis; echo "         MENU UTAMA RESET         "; garis
+  echo "1. Reset Semua Layanan Server"
+  echo "2. Atur Jadual Auto Reset"
+  echo "0. Kembali ke Menu Utama"; garis
+  read -p "Masukkan pilihan (0-2): " pilihan
+  case $pilihan in
+    1) run_auto_service_reset;;
+    2) schedule_auto_reset_menu;;
+    0)
+      if [[ -n "$MAIN_MENU_SCRIPT" && -f "$MAIN_MENU_SCRIPT" ]]; then
+          echo "Kembali ke menu utama..."
+          sleep 1
+          # Jalankan skrip menu utama dan keluar dari skrip ini
+          exec bash "$MAIN_MENU_SCRIPT"
+      else
+          echo -e "\033[0;31mTidak dapat kembali. Skrip ini perlu dipanggil dari menu utama.\033[0m"
+          echo "Keluar dari skrip reset."
+          sleep 2
+          break
+      fi
+      ;;
+    *) echo "Pilihan tidak sah."; read -p "Tekan Enter untuk teruskan...";;
+  esac
+done}
 
 # --- Fungsi dari Skrip Pertama (Menu Reset) ---
 auto_reset_menu() {
